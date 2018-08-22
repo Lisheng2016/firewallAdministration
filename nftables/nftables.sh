@@ -1,5 +1,32 @@
+#! /bin/sh
+INTERNET="eth0"							# Internet-connected interface
+LOOPBACK_INTERFACE="lo"					# Loopback interface name
+IPADDR="my.ip.address"					# IP address of the internet-connnected interface
+MY_ISP="my.isp.address.range"			# ISP server & NOC address range
+SUBNET_BASE="my.subnet.network"			# Your subnet's network address
+SUBNET_BROADCAST="my.subnet.bcast"		# Your subnet's broadcast address
+LOOPBACK="127.0.0.0/8"					# Reserved loopback address range
+CLASS_A="10.0.0.0/8"					# Class A private networks
+CLASS_B="172.16.0.0/12"					# Class B private networks
+CLASS_C="192.168.0.0/16"				# Class C private networks
+CLASS_D_MULTICAST="224.0.0.0/5"			# Class D multicast address
+CLASS_E_RESERVED_NET="240.0.0.0/5"		# Class E reserved address
+BROADCAST_SRC="0.0.0.0"					# Broadcast source address
+BROADCAST_DEST="255.255.255.255"		# Broadcast destination address
+PRIVPORTS="0-1023"						# Well-known, privileged port range
+UNPRIVPORTS="1024-65535"				# Unprivileged port range
+XWINDOW_PORTS="6000-6063"   			# (TCP) X Windows
+NFS_PORT="2049"							# (TCP) NFS
+LOCKD_PORT="4045"						# (TCP) RPC LOCKD for NFS
+SOCKS_PORT="1080"						# (TCP) SOCKS
+OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
+SQUID_PORT="3128"						# (TCP) Squid
+
+# Location of nft in your system
+$NFT=`which nft`
+
 # import constants
-source Constants.sh
+# source Constants.sh
 
 ################ Enabling Kernel-Monitoring Support ################
 
@@ -120,3 +147,61 @@ udp accept
 
 # Refuse packets from CLASS_E address
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_E_RESERVED_NET drop
+
+# X Window connection establishment
+# Refuse initializing from server to other machine
+$NFT add rule filter output oifname $INTERNET ct state new tcp dport $XWINDOWS_PORTS reject
+
+# Refuse all incoming establishment attemps to XWindows as all X traffic should
+# be tunnelled through SSH
+$NFT add rule filter input iifname $INTERNET ct state new tcp dport $XWINDOWS_PORTS drop
+
+
+# Establishing a connection over TCP to NFS,Openwindows,squid or socks
+$NFS add rule filter input iifname $INTERNET \
+tcp dport \
+{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} \
+ct state new drop
+
+$NFS add rule filter output oifname $INTERNET \
+tcp dport \
+{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} \
+ct state new reject
+
+# NFS and RPC lockd
+$NFT add rule filter input iifname $INTERNET udp dport \
+{$NFS_PORT,$LOCKD_PORT} drop
+
+$NFT add rule filter output oifname $INTERNET udp dport \
+{$NFS_PORT,$LOCKD_PORT} reject
+
+# Allowing DNS Lookups as a client
+isConntrack=`lsmod | grep ^nf_conntrack_ipv4 | awk '{print $1}'`
+NAMESEVER="my.name.server"			# (TCP/UDP) DNS
+
+$NFT add rule filter output oifname $INTERNET ip saddr $INTERNET \
+udp sport $UNPRIVPORTS ip daddr $NAMESEVER udp dport 53 ct state new accept
+
+$NFT add rule filter input iifname $INTERNET ip saddr $NAMESEVER \
+udp sport 53 ip daddr $INTERNET udp dport $UNPRIVPORTS accept
+
+# DNS retries over TCP
+$NFT add rule filter output oifname $INTERNET ip daddr $NAMESEVER tcp \
+dport 53 ip sddr $IPADDR sport $UNPRIVPORTS ct state new accept
+
+$NFT add rule filter input iifname $INTERNET ip saddr $NAMESEVER tcp \
+sport 53 ipaddr $INTERNET dport $UNPRIVPORTS flags != syn accept
+
+
+
+
+
+
+
+
+
+
+
+
+
+

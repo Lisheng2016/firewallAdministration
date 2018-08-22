@@ -15,6 +15,12 @@ BROADCAST_SRC="0.0.0.0"					# Broadcast source address
 BROADCAST_DEST="255.255.255.255"		# Broadcast destination address
 PRIVPORTS="0:1023"						# Well-known, privileged port range
 UNPRIVPORTS="1024:65535"				# Unprivileged port range
+XWINDOW_PORTS="6000:6063"   			# (TCP) X Windows
+NFS_PORT="2049"							# (TCP) NFS
+SOCKS_PORT="1080"						# (TCP) SOCKS
+OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
+SQUID_PORT="3128"						# (TCP) Squid
+
 
 # Location of iptables on your system
 IPT=`which iptables`

@@ -1,5 +1,30 @@
-# import constants
-source Constants.sh
+#! /bin/sh
+INTERNET="eth0"							# Internet-connected interface
+LOOPBACK_INTERFACE="lo"					# Loopback interface name
+IPADDR="my.ip.address"					# IP address of the internet-connnected interface
+MY_ISP="my.isp.address.range"			# ISP server & NOC address range
+SUBNET_BASE="my.subnet.network"			# Your subnet's network address
+SUBNET_BROADCAST="my.subnet.bcast"		# Your subnet's broadcast address
+LOOPBACK="127.0.0.0/8"					# Reserved loopback address range
+CLASS_A="10.0.0.0/8"					# Class A private networks
+CLASS_B="172.16.0.0/12"					# Class B private networks
+CLASS_C="192.168.0.0/16"				# Class C private networks
+CLASS_D_MULTICAST="224.0.0.0/5"			# Class D multicast address
+CLASS_E_RESERVED_NET="240.0.0.0/5"		# Class E reserved address
+BROADCAST_SRC="0.0.0.0"					# Broadcast source address
+BROADCAST_DEST="255.255.255.255"		# Broadcast destination address
+PRIVPORTS="0:1023"						# Well-known, privileged port range
+UNPRIVPORTS="1024:65535"				# Unprivileged port range
+XWINDOW_PORTS="6000:6063"   			# (TCP) X Windows
+NFS_PORT="2049"							# (TCP) NFS
+LOCKD_PORT="4045"						# (TCP) RPC LOCKD for NFS
+SOCKS_PORT="1080"						# (TCP) SOCKS
+OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
+SQUID_PORT="3128"						# (TCP) Squid
+
+
+# Location of iptables on your system
+IPT=`which iptables`
 
 ################ Enabling Kernel-Monitoring Support ################
 
@@ -153,6 +178,97 @@ $IPT -A INPUT -i $INTERNET -p udp -d $CLASS_D_MULTICAST -j ACCEPT
 
 # Refuse packets from CLASS_E address
 $IPT -A INPUT -i $INTERNET -s $CLASS_E_RESERVED_NET -j DROP
+
+# X Window connection establishment
+# Refuse initializing from server to other machine
+$IPT -A OUTPUT -o $INTERNET -p tcp --syn --destination-port=$XWINDOWS_PORTS -j REJECT
+
+# Refuse all incoming establishment attemps to XWindows as all X traffic should
+# be tunnelled through SSH
+$IPT -A INPUT -i $INTERNET -p tcp --destination-port=$XWINDOWS_PORTS -m state --state=new -j DROP
+
+
+# Establising a connection over TCP to NFS, OpenWindows, Squid, or SOCKS
+
+$IPT -A INPUT -i $INTERNET -p tcp \
+-m multiport --destination-port \
+$NFS_PORT,$OPENWINDOWS_PORT,$SQUID_PORT,$SOCKS_PORT \
+--syn -j DROP
+
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-m multiport --destination-port \
+$NFS_PORT,$OPENWINDOWS_PORT,$SQUID_PORT,$SOCKS_PORT \
+--syn -j REJECT
+
+
+# NFS and RPC lockd
+$IPT -A INPUT -i $INTERNET -p udp \
+-m multiport --destination-port \
+$NFS_PORT,$LOCKD_PORT -j DROP
+
+$IPT -A OUTPUT -o $INTERNET -p udp \
+-m multiport --destination-port \
+$NFS_PORT,$LOCKD_PORT -j REJECT
+
+
+# Allowing DNS Lookups as a Client
+isConntrack=`lsmod | grep ^nf_conntrack_ipv4 | awk '{print $1}'`
+NAMESEVER="my.name.server"			# (TCP/UDP) DNS
+
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -o $INTERNET -p udp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	-d $NAMESEVER --dport 53 \
+	-m state --state NEW -j ACCEPT
+fi
+
+# Conntrack unavailable or not installed
+# as is static rules
+$IPT -A OUTPUT -o $INTERNET -p udp \
+-s $IPADDR --sport $UNPRIVPORTS \
+-d $NAMESEVER --dport 53 \
+-j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p udp \
+-s $NAMESEVER --sport 53 \
+-d $IPADDR --dport $UNPRIVPORTS \
+-j ACCEPT
+
+# DNS retry over TCP
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -o $INTERNET -p udp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	-d $NAMESEVER --dport 53 \
+	-m state --state NEW \
+	-j ACCEPT
+fi
+
+# static entries as conntrack is not available or not present
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $UNPRIVPORTS \
+-d $NAMESEVER --dort 53 \
+-j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp \
+-s $NAMESEVER --sport 53 \
+-d $IPADDR --dport $UNPRIVPORTS \
+-j ACCEPT
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
