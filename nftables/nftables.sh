@@ -192,6 +192,83 @@ dport 53 ip sddr $IPADDR sport $UNPRIVPORTS ct state new accept
 $NFT add rule filter input iifname $INTERNET ip saddr $NAMESEVER tcp \
 sport 53 ipaddr $INTERNET dport $UNPRIVPORTS flags != syn accept
 
+# Email(TCP SMTP Port 25,POP Port 110,IMAP Port 143)
+# Relay outgoing email with ISP's relay server
+SMTP_GATEWAY="my.isp.server" 			# External mail server or relay
+
+$NFT add rule filter output oifname $INTERNET ip daddr $SMTP_GATEWAY tcp dport 25
+ip sddr $IPADDR tcp sport $UNPRIVPORTS accept
+
+$NFT add rule filter input iifname $INTERNET ip saddr $SMTP_GATEWAY tcp sport 25 
+ip daddr $IPADDR tcp dport $UNPRIVPORTS tcp flags != syn accept
+
+# Sending mail to any external mail server
+$NFT add rule output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS 
+tcp dport 25 accept
+
+$NFT add rule input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
+tcp sport 25 tcp flags != syn accept
+
+# Receving mail as an internal smtp server(TCP Port 25)
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport 25 tcp sport $UNPRIVPORTS 
+accept
+
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 25 tcp dport $UNPRIVPORTS
+tcp flags != syn accept
+
+# Receving mail as an POP over SSL client
+POP_SERVER="my.isp.pop.server"
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS ip saddr $POP_SERVER tcp sport 995 
+ tcp flags != syn accept
+
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS ip daddr $POP_SERVER dport 995
+ accept
+
+# Receving mail as an IMAP over SSL client
+IMAP_SERVER="my.isp.imap.server"
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS ip saddr $POP_SERVER tcp sport 993 
+ tcp flags != syn accept
+
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS ip daddr $POP_SERVER dport 993
+ accept
+
+# Hosting a POP over SSL server for remote clients
+# POP_CLIENTS="network/mask"
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport 995 <ip saddr [clients]> tcp sport $UNPRIVPORTS 
+accept
+
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 995 tcp dport $UNPRIVPORTS
+tcp flags != syn accept 
+
+# SSH
+SSH_PORTS="1024-65535"				# RSA authentication
+#SSH_PORTS="1020-65535"				# RHOST authentication
+
+# allow access to remote SSH server
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $SSH_PORTS 
+tcp dport 22 accept
+
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $SSH_PORTS 
+tcp sport 22 tcp flags != syn accept
+
+# allowing SSH access to this server
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport 22  
+tcp sport $SSH_PORTS accept
+
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 22 
+tcp dport $SSH_PORTS tcp flags != syn accept
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

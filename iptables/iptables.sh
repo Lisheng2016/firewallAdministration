@@ -136,7 +136,7 @@ $IPT -A OUTPUT -m state --state INVALID -j LOG \
 		--log-prefix "INVALID output: "
 $IPT -A OUTPUT -m state --state INVALID -j DROP
 
-# Refuse spoofed packets pretending to be from ipaddr of server's 
+# Refuse spoofed packets pretending to be from IPADDR of server's 
 # ethernet adaptor
 $IPT -A INPUT -i $INTERNET -s $IPADDR -j DROP
 
@@ -253,6 +253,172 @@ $IPT -A INPUT -i $INTERNET -p tcp \
 -s $NAMESEVER --sport 53 \
 -d $IPADDR --dport $UNPRIVPORTS \
 -j ACCEPT
+
+# Allowing NDS lookups as a Forwarding server
+# Assuming using (s/d)port 53 for server-server exchange
+
+# Email(TCP SMTP Port 25,POP Port 110,IMAP Port 143)
+# Relay outgoing email with ISP's relay server
+SMTP_GATEWAY="my.isp.server" 			# External mail server or relay
+
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -o $INTERNET -p tcp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	-d $SMTP_GATEWAY --dport 25 \
+	-m state --state NEW \
+	-j ACCEPT
+fi
+
+# fallback to stateless firewall rules
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $UNPRIVPORTS \
+-d $SMTP_GATEWAY --dport 25 \
+-j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
+-s $SMTP_GATEWAY --sport 25 \
+-d $IPADDR --dport $UNPRIVPORTS \
+-j ACCEPT
+
+
+# Sending mail to any external mail server
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -o $INTERNET -p tcp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	--dport 25 \
+	-m state --state NEW \
+	-j ACCEPT
+fi
+
+# fallback to stateless firewall rules
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $UNPRIVPORTS \
+--dport 25 \
+-j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
+-d $IPADDR --dport $UNPRIVPORTS \
+--sport 25 \
+-j ACCEPT
+
+# Reveiving mail as a local SMTP server
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A INPUT -i $INTERNET -p tcp \
+	--sport $UNPRIVPORTS \
+	-d $IPADDR --dport 25 \
+	-m state --state NEW ACCEPT
+fi
+
+# fallback to stateless 
+$IPT -A INPUT -i $INTERNET -p tcp \
+--sport $UNPRIVPORTS \
+-d $IPADDR --dport 25 -j ACCEPT
+
+$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
+-s $IPADDR --sport 25 \
+--dport $UNPRIVPORTS -j ACCEPT
+
+# Retriving Mail as a POP Client (TCP Port 110 or 995)
+POP_SERVER="my.isp.pop.server" 				# External POP server
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -p tcp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	-d $POP_SERVER --dport 110 \
+	-m state --state NEW -j ACCEPT
+fi
+
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $UNPRIVPORTS \
+-d $POP_SERVER --dport 110 -j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
+-s $POP_SERVER --sport 110 \
+-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+
+# Receiving Mail as an IMAP Client
+IMAP_SERVER="my.isp.imap.server"
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -p tcp \
+	-s $IPADDR --sport $UNPRIVPORTS \
+	-d $IMAP_SERVER --dport 143 \
+	-m state --state NEW -j ACCEPT
+fi
+
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $UNPRIVPORTS \
+-d $IMAP_SERVER --dport 143 -j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
+-s $IMAP_SERVER --sport 143 \
+-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+
+
+# Hosting a POP over SSL server for remote clients
+# POP_CLIENTS="network/mask"
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A INPUT -i $INTERNET -p tcp \
+	<-s clients> --sport $UNPRIVPORTS \
+	-d $IPADDR --dport 995 \
+	-m state --state NEW -j ACCEPT
+fi
+
+# fallback to stateless
+$IPT -A INPUT -i $INTERNET -p tcp \
+<-s clients> --sport $UNPRIVPORTS \
+-d $IPADDR --dport 995 -j ACCEPT
+
+$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
+<-d clients> --dport $UNPRIVPORTS \
+-s $IPADDR --sport 995 -j ACCEPT
+
+# SSH
+SSH_PORTS="1024:65535"				# RSA authentication
+#SSH_PORTS="1020:65535"				# RHOST authentication
+
+# allow access to remote SSH server
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A OUTPUT -o $INTERNET -p tcp \
+	-s $IPADDR --sport $SSH_PORTS \
+	<-d [remote]> --dport 22 \
+	-m state --state NEW -j ACCEPT
+fi
+
+# fallback to stateless
+$IPT -A OUTPUT -o $INTERNET -p tcp \
+-s $IPADDR --sport $SSH_PORTS \
+--dport 22 -j ACCEPT
+
+$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
+-d $IPADDR --dport $SSH_PORTS \
+--sport 22 -j ACCEPT
+
+# allow access to this server
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	$IPT -A INPUT -i $INTERNET -p tcp \
+	--sport $SSH_PORTS \
+	-d $IPADDR --dport 22 \
+	-m state --state NEW -j ACCEPT
+fi
+
+$IPT -A INPUT -i $INTERNET -p tcp \
+-d $IPADDR --dport 22 \
+--sport $SSH_PORTS -j ACCEPT
+
+$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
+-s $IPADDR --sport 22 \
+--dport $SSH_PORTS -j ACCEPT
+
+# FTP
+
+
+
+
+
+
+
+
+
+
 
 
 
