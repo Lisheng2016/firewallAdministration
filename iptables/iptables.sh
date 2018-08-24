@@ -840,24 +840,3 @@ $IPT -A INPUT -i $INTERNET -p tcp -j LOG --log-prefix "Incoming but dropped: "
 # log all outgoing and dropped packets
 $IPT -A OUTPUT -o $INTERNET -p tcp -j LOG --log-prefix "Outgoing but Dropped: "
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
