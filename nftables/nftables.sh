@@ -258,17 +258,44 @@ tcp sport $SSH_PORTS accept
 $NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 22 
 tcp dport $SSH_PORTS tcp flags != syn accept
 
+# allowing outgoing FTP control channel
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS 
+tcp dport 21 accept
 
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
+tcp sport 21 accept
 
+# Port-mode FTP data channel
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
+tcp sport 20 accept
 
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS 
+tcp dport 20 tcp flags != syn accept
 
+# DHCP
+# initialization or rebinding :No lease or lease time expired
+$NFT add rule filter output oifname $INTERNET ip saddr $BROADCAST_SRC udp sport 67-68 ip daddr $BROADCAST_DEST
+udp dport 67-68  accept
 
+# Incoming DHCPOFFER from available DHCP server
+$NFT add rule filter input iifname $INTERNET udp sport 67-68 udp dport 67-68 accept
 
+# NTP 
+TIME_SERVER="my.time.server"
 
+# query as a client
+$NFT add rule filter output oifname $INTERNET udp ip saddr $IPADDR udp sport $UNPRIVPORTS 
+ip daddr $TIME_SERVER udp dport 123 accept
 
+$NFT add rule filter input iifname $INTERNET udp ip daddr $IPADDR udp dport $UNPRIVPORTS 
+ip saddr $TIME_SERVER udp sport 123 accept
 
+# END of MAIN
+# log all incoming and dropped packets
+$NFT add rule filter input iifname $INTERNET log limit rate 3/second
 
-
+# log all outgoing and dropped packets
+$NFT add rule filter output oifname $INTERNET log limit rate 3/second
 
 
 
