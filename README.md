@@ -2,7 +2,7 @@
 
 > providing standalone firewall using iptables and nftables
 
-<img src="./standalone_firewall_plan.png" />
+<img src="./standalone_firewall_plan.jpg" />
 
 ## Installation
 
