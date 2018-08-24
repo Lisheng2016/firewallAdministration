@@ -21,6 +21,18 @@ LOCKD_PORT="4045"						# (TCP) RPC LOCKD for NFS
 SOCKS_PORT="1080"						# (TCP) SOCKS
 OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
 SQUID_PORT="3128"						# (TCP) Squid
+# USER_CHAINS DEFINITION
+USER_CHAINS="EXT_INPUT 					EXT_OUTPUT \
+			tcp-state-flags 			connection-tracking \
+			source-address-checking 	destination-source-checking \
+			local-dns-server-query 		remote-dns-server-response \
+			local-tcp-client-request 	remote-tcp-server-response \
+			remote-tcp-client-request 	local-tcp-server-resonse \
+			local-udp-client-request 	remote-udp-server-response \
+			local-dhcp-client-query  	remote-dhcp-server-response \
+			EXT-icmp-out 				EXT-icmp-in \
+			EXT-log-in 					EXT-log-out \
+			log-tcp-state"
 
 
 # Location of iptables on your system
@@ -121,6 +133,15 @@ done
 $IPT -A INPUT -i lo -j ACCEPT
 $IPT -A OUTPUT -o lo -j ACCEPT
 
+# Create the user-defined chains
+for chain in "$USER_CHAINS";do
+	$IPT -N ${chain}
+done
+
+if [ ${isConntrack} = "nf_conntrack_ipv4" ];then
+	# Bypass the firewall filters for established exchanges
+	$IPT -A INPUT -j connection-tracking
+	$IPT -A OUTPUT -j connection-tracking
 # Set the default policy to Drop
 $IPT -P INPUT DROP
 $IPT -P OUTPUT DROP
@@ -480,8 +501,9 @@ $IPT -A INPUT -i $INTERNET -j LOG --log-prefix "Incoming but dropped: "
 # log all outgoing and dropped packets
 $IPT -A OUTPUT -o $INTERNET -j LOG --log-prefix "Outgoing but Dropped: "
 
-
-
+# If TCP: Check fot common stealth scan TCP state patterns
+$IPT -A INPUT -p tcp -j tcp-state-flags
+$IPT -A OUTPUT -p tcp -j tcp-state-flags
 
 
 
