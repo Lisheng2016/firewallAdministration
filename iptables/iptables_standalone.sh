@@ -12,6 +12,7 @@ else
  	CONNECTION_TRACKING=0
 fi
 
+# Service Providing/Enabled Parameters
 ACCEPT_AUTH="0"
 SSH_SERVER="1"
 FTP_SERVER="1"

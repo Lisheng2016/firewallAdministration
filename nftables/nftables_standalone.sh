@@ -1,20 +1,41 @@
 #! /bin/sh
+
+# Location of nft in your system
+$NFT=`which nft`
+
+# Common definitions
 INTERNET="eth0"							# Internet-connected interface
 LOOPBACK_INTERFACE="lo"					# Loopback interface name
 IPADDR="my.ip.address"					# IP address of the internet-connnected interface
 MY_ISP="my.isp.address.range"			# ISP server & NOC address range
 SUBNET_BASE="my.subnet.network"			# Your subnet's network address
 SUBNET_BROADCAST="my.subnet.bcast"		# Your subnet's broadcast address
+
+# Network definitions
 LOOPBACK="127.0.0.0/8"					# Reserved loopback address range
 CLASS_A="10.0.0.0/8"					# Class A private networks
 CLASS_B="172.16.0.0/12"					# Class B private networks
 CLASS_C="192.168.0.0/16"				# Class C private networks
 CLASS_D_MULTICAST="224.0.0.0/5"			# Class D multicast address
 CLASS_E_RESERVED_NET="240.0.0.0/5"		# Class E reserved address
+
+# Special IP/Port
 BROADCAST_SRC="0.0.0.0"					# Broadcast source address
 BROADCAST_DEST="255.255.255.255"		# Broadcast destination address
 PRIVPORTS="0-1023"						# Well-known, privileged port range
 UNPRIVPORTS="1024-65535"				# Unprivileged port range
+
+# External server address
+NAMESEVER="my.name.server"				# (TCP/UDP) DNS
+POP_SERVER="my.isp.pop.server" 			# External POP server
+MAIL_SERVER="my.isp.mail.server"		# External mail server
+JENKINS_SERVER="my.jenkins.server"		# External Jenkins server
+TIME_SERVER="my.time.server"			# External time server
+DHCP_SERVER="my.isp.dhcp.server"		# ISP's DHCP server
+IMAP_SERVER="my.imap.server"			# External IMAP Server
+TRUSTED_HOSTS="my.hosts"				# Trusted icmp request hosts
+
+#.Service Port
 XWINDOW_PORTS="6000-6063"   			# (TCP) X Windows
 NFS_PORT="2049"							# (TCP) NFS
 LOCKD_PORT="4045"						# (TCP) RPC LOCKD for NFS
@@ -22,13 +43,9 @@ SOCKS_PORT="1080"						# (TCP) SOCKS
 OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
 SQUID_PORT="3128"						# (TCP) Squid
 
-# Location of nft in your system
-$NFT=`which nft`
 
-# import constants
-# source Constants.sh
-
-################ Enabling Kernel-Monitoring Support ################
+#################################################################
+# Enabling Kernel-Monitoring Support
 
 # Enable broadcast echo Protection to ignore an echo request
 # to a broadcast address thus preventing compromising all host 
@@ -63,11 +80,9 @@ done
 # E network)
 echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
 
-################ Enabling Kernel-Monitoring Support ################
 
-
-################ Removing Any Preexisting Rules ####################
-# Removing all existing rules from all chains
+#################################################################
+# Removing all existing chains from filter table
 # $NFT flush table <table_name>
 for i in `$NFT list tables | awk 'print $2'`
 do
@@ -81,30 +96,30 @@ do
 	echo "Deleting table ${i}"
 	$NFT delete table ${i}
 done
-################ Removing Any Preexisting Rules ####################
 
 
-############### Re-create default table and chains #################
+#################################################################
+# Re-create default table and chains
 $NFT -f setup-tables.sh
 
-############### Re-create default table and chains #################
 
+#################################################################
+# Rule Specification
 
-#############################  Main  ############################
+# loopback
 $NFT add rule filter input iifname lo accept 
 $NFT add rule filter output oifname lo accept
 
+# Connection state
 # Using conntrack to bypass already established or related traffic
 $NFT add rule filter input ct state established,related accept
 $NFT add rule filter input ct state invalid log prefix \"INVALID input: \" limit 
- rate 3/second drop
+rate 3/second drop
 $NFT add rule filter output ct state established,related accept
-$NFT add rule filter output ct state invalid log prefix \"INVALID output: \" limit
- rate 3/second drop
+$NFT add rule filter output ct state invalid log prefix \"INVALID output: \" limit 
+rate 3/second drop
 
-
-# Refuse spoofed packets pretending to be from ipaddr of server's 
-# ethernet adaptor
+# refuse source address spoofing
 $NFT add rule filter input iifname $INTERNET ip saddr $IPADDR
 
 # There is no need to block outgoing packet's destinating for yourself 
@@ -112,73 +127,65 @@ $NFT add rule filter input iifname $INTERNET ip saddr $IPADDR
 # sent from your machine and to your machine never reaches external 
 # interface
 
-# Reject packages claiming to be from CLASS_A,CLASS_B and CLASS_C 
-# private network
+# invalid address from CLASS_A,CLASS_B and CLASS_C private network and loopback
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_A drop
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_B drop
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_C drop
-
-# Reject packages claiming from loopback interfaces
 $NFT add rule filter input iifname $INTERNET ip saddr $LOOPBACK drop
 
-# Reject malformed broadcast packages
+# reject malformed broadcast packages
 $NFT add rule filter input iifname $INTERNET ip saddr $BROADCAST_DEST \
  log prefix \"With 255.255.255.255 as source: \" limit rate 3/second drop
 $NFT add rule filter input iifname $INTERNET ip saddr $BROADCAST_SRC \
  log prefix \"With 0.0.0.0 as destination: \" limit rate 3/second drop
 
-# Refuse directed broadcasts used to map networks and form
-# DOS attacks
+# Refuse directed broadcasts used to map networks and form DOS attacks
 $NFT add rule filter input iifname $INTERNET ip daddr $SUBNET_BASE drop
 $NFT add rule filter input iifname $INTERNET ip daddr $SUBNET_BROADCAST drop
 
-# Refuse CLASS_D multicast address
-# Illegal as soure address
+# CLASS_D multicast 
+# Refuse CLASS_D multicast address Illegal as soure address
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_D_MULTICAST drop
-
 # Legitimate multicast packets are always UDP packets
 # Refuse any not-udp packets to CLASS_D_MULTICAST address
 $NFT add rule filter input iifname $INTERNET ip daddr $CLASS_D_MULTICAST ip protocol \
 != udp drop
-
 # Accept incoming multicast packets
 $NFT add rule filter input iifname $INTERNET ip daddr $CLASS_D_MULTICAST ip protocol \
 udp accept
 
-# Refuse packets from CLASS_E address
+# CLASS_E address
 $NFT add rule filter input iifname $INTERNET ip saddr $CLASS_E_RESERVED_NET drop
 
 # X Window connection establishment
 # Refuse initializing from server to other machine
-$NFT add rule filter output oifname $INTERNET ct state new tcp dport $XWINDOWS_PORTS reject
+XWINDOW_PORTS="6000-6063"   			# (TCP) X Windows
 
+$NFT add rule filter output oifname $INTERNET ct state new tcp dport $XWINDOWS_PORTS reject
 # Refuse all incoming establishment attemps to XWindows as all X traffic should
 # be tunnelled through SSH
 $NFT add rule filter input iifname $INTERNET ct state new tcp dport $XWINDOWS_PORTS drop
 
+# NFS,Openwindows,squid or socks connection establishment
+NFS_PORT="2049"							# (TCP) NFS
+SOCKS_PORT="1080"						# (TCP) SOCKS
+OPENWINDOWS_PORT="2000"					# (TCP) OpenWindows
+SQUID_PORT="3128"						# (TCP) Squid
+$NFS add rule filter input iifname $INTERNET tcp dport \
+{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} ct state new drop
 
-# Establishing a connection over TCP to NFS,Openwindows,squid or socks
-$NFS add rule filter input iifname $INTERNET \
-tcp dport \
-{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} \
-ct state new drop
-
-$NFS add rule filter output oifname $INTERNET \
-tcp dport \
-{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} \
-ct state new reject
+$NFS add rule filter output oifname $INTERNET tcp dport \
+{$SQUID_PORT,$NFS_PORT,$OPENWINDOWS_PORT,$SOCKS_PORT} ct state new reject
 
 # NFS and RPC lockd
+LOCKD_PORT="4045"						# (TCP) RPC LOCKD for NFS
 $NFT add rule filter input iifname $INTERNET udp dport \
 {$NFS_PORT,$LOCKD_PORT} drop
 
 $NFT add rule filter output oifname $INTERNET udp dport \
 {$NFS_PORT,$LOCKD_PORT} reject
 
-# Allowing DNS Lookups as a client
-isConntrack=`lsmod | grep ^nf_conntrack_ipv4 | awk '{print $1}'`
-NAMESEVER="my.name.server"			# (TCP/UDP) DNS
-
+# DNS lookup/query
 $NFT add rule filter output oifname $INTERNET ip saddr $INTERNET \
 udp sport $UNPRIVPORTS ip daddr $NAMESEVER udp dport 53 ct state new accept
 
@@ -192,14 +199,12 @@ dport 53 ip sddr $IPADDR sport $UNPRIVPORTS ct state new accept
 $NFT add rule filter input iifname $INTERNET ip saddr $NAMESEVER tcp \
 sport 53 ipaddr $INTERNET dport $UNPRIVPORTS flags != syn accept
 
-# Email(TCP SMTP Port 25,POP Port 110,IMAP Port 143)
+# Email(TCP SMTP Port 25,POP/s Port 110/995,IMAP/s Port 143/993)
 # Relay outgoing email with ISP's relay server
-SMTP_GATEWAY="my.isp.server" 			# External mail server or relay
-
-$NFT add rule filter output oifname $INTERNET ip daddr $SMTP_GATEWAY tcp dport 25
+$NFT add rule filter output oifname $INTERNET ip daddr $SMTP_GATEWAY tcp dport 25 \
 ip sddr $IPADDR tcp sport $UNPRIVPORTS accept
 
-$NFT add rule filter input iifname $INTERNET ip saddr $SMTP_GATEWAY tcp sport 25 
+$NFT add rule filter input iifname $INTERNET ip saddr $SMTP_GATEWAY tcp sport 25 \
 ip daddr $IPADDR tcp dport $UNPRIVPORTS tcp flags != syn accept
 
 # Sending mail to any external mail server
@@ -217,28 +222,26 @@ $NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 25 tcp 
 tcp flags != syn accept
 
 # Receving mail as an POP over SSL client
-POP_SERVER="my.isp.pop.server"
-$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS ip saddr $POP_SERVER tcp sport 995 
- tcp flags != syn accept
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS \
+ip saddr $POP_SERVER tcp sport 995 tcp flags != syn accept
 
-$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS ip daddr $POP_SERVER dport 995
- accept
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS \
+ip daddr $POP_SERVER dport 995 accept
 
 # Receving mail as an IMAP over SSL client
-IMAP_SERVER="my.isp.imap.server"
-$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS ip saddr $POP_SERVER tcp sport 993 
- tcp flags != syn accept
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS \
+ip saddr $IMAP_SERVER tcp sport 993 tcp flags != syn accept
 
-$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS ip daddr $POP_SERVER dport 993
- accept
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS \
+ip daddr $IMAP_SERVER dport 993 accept
 
-# Hosting a POP over SSL server for remote clients
+# Hosting POP over SSL server* for remote clients
 # POP_CLIENTS="network/mask"
-$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport 995 <ip saddr [clients]> tcp sport $UNPRIVPORTS 
-accept
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR \
+tcp dport 995 tcp sport $UNPRIVPORTS accept
 
-$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport 995 tcp dport $UNPRIVPORTS
-tcp flags != syn accept 
+$NFT add rule filter output oifname $INTERNET ip saddr $IPADDR \
+tcp sport 995 tcp dport $UNPRIVPORTS tcp flags != syn accept 
 
 # SSH
 SSH_PORTS="1024-65535"				# RSA authentication
@@ -265,12 +268,14 @@ tcp dport 21 accept
 $NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
 tcp sport 21 accept
 
-# Port-mode FTP data channel
-$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
-tcp sport 20 accept
-
+# FTP client mode (notice : not FTP server mode!)
+# Assume using ct state model for ftp
+# outgoing FTP control channel packets as a client
 $NFT add rule filter output oifname $INTERNET ip saddr $IPADDR tcp sport $UNPRIVPORTS 
-tcp dport 20 tcp flags != syn accept
+tcp dport 21 tcp flags != syn accept
+# incoming FTP control channel packets from server
+$NFT add rule filter input iifname $INTERNET ip daddr $IPADDR tcp dport $UNPRIVPORTS 
+tcp sport 21 accept
 
 # DHCP
 # initialization or rebinding :No lease or lease time expired
@@ -280,9 +285,22 @@ udp dport 67-68  accept
 # Incoming DHCPOFFER from available DHCP server
 $NFT add rule filter input iifname $INTERNET udp sport 67-68 udp dport 67-68 accept
 
-# NTP 
-TIME_SERVER="my.time.server"
+# DHCP
+# DHCPDISCOVER from this machine
+$NFT add rule filter output oifname $INTERNET ip saddr $BROADCAST_SRC udp sport 68 \
+ip daddr $BROADCAST_DEST udp dport 67 accept
+# DHCPOFFER from potential server
+$NFT add rule filter input iifname $INTERNET ip saddr $BROADCAST_SRC udp sport 67 \
+ipdaddr $BROADCAST_DEST udp dport 68 accept
+# DHCP address renew and client is aware of the exising server 
+# DHCPREQUEST
+$NFT add rule filter output oifname $INTERNET ip saddr $BROADCAST_SRC udp sport 68 \
+daddr $BROADCAST_DEST udp dport 67 accept
+# DHCPACK
+$NFT add rule filter input iifname $INTERNET ip saddr $DHCP_SERVER udp sport 67 \
+ip daddr $IPADDR udp dport 68 accept
 
+# NTP 
 # query as a client
 $NFT add rule filter output oifname $INTERNET udp ip saddr $IPADDR udp sport $UNPRIVPORTS 
 ip daddr $TIME_SERVER udp dport 123 accept
@@ -290,12 +308,14 @@ ip daddr $TIME_SERVER udp dport 123 accept
 $NFT add rule filter input iifname $INTERNET udp ip daddr $IPADDR udp dport $UNPRIVPORTS 
 ip saddr $TIME_SERVER udp sport 123 accept
 
-# END of MAIN
 # log all incoming and dropped packets
-$NFT add rule filter input iifname $INTERNET log limit rate 3/second
-
+$NFT add rule filter input iifname $INTERNET log prefix \"Incoming but dropped: \" limit rate 3/second
 # log all outgoing and dropped packets
-$NFT add rule filter output oifname $INTERNET log limit rate 3/second
+$NFT add rule filter output oifname $INTERNET log prefix \"Outgoing but dropped: \" limit rate 3/second
+
+# default policies
+$NFT add rule filter input iifname $INTERNET drop
+$NFT add rule filter output oifname $INTERNET reject
 
 
 

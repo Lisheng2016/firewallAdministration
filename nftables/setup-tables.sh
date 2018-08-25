@@ -6,8 +6,4 @@ table filter {
 	chain output {
 		type filter hook output priority 0;
 	}
-
-	chain forward {
-		type filter hook forward priority 0;
-	}
 }
