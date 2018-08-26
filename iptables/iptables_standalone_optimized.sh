@@ -12,15 +12,19 @@ else
  	CONNECTION_TRACKING=0
 fi
 
+# Service Providing/Enabled Parameters
 ACCEPT_AUTH="0"
 SSH_SERVER="1"
-FTP_SERVER="1"
+FTP_SERVER="0"
 WEB_SERVER="0"
 SSL_SERVER="0"
 DHCP_CLIENT="0"
 POP_SERVER="0"
-POP_CLIENT="1"
-IMAP_CLIENT="1"
+POP_CLIENT="0"
+IMAP_CLIENT="0"
+
+# Authenticated ICMP hosts
+AUTH_HOSTS="some icmp initializing hosts"
 
 # Location of iptables on your system
 IPT=`which iptables`
@@ -34,7 +38,9 @@ SUBNET_BASE="my.subnet.network"			# Your subnet's network address
 SUBNET_BROADCAST="my.subnet.bcast"		# Your subnet's broadcast address
 
 # External server address
-NAMESEVER="my.name.server"				# (TCP/UDP) DNS
+NAMESEVER_1="my.name.server1"			# (TCP/UDP) DNS
+NAMESEVER_2="my.name.server2"			# (TCP/UDP) DNS
+NAMESEVER_3="my.name.server3"			# (TCP/UDP) DNS
 POP_SERVER="my.isp.pop.server" 			# External POP server
 MAIL_SERVER="my.isp.mail.server"		# External mail server
 JENKINS_SERVER="my.jenkins.server"		# External Jenkins server
@@ -42,6 +48,8 @@ TIME_SERVER="my.time.server"			# External time server
 DHCP_SERVER="my.isp.dhcp.server"		# ISP's DHCP server
 IMAP_SERVER="my.imap.server"			# External IMAP Server
 TRUSTED_HOSTS="my.hosts"				# Trusted icmp request hosts
+NEWS_SERVER="my.news.server"			# External NEWS server
+SSH_CLIENT="some clients"				# Authenticated SSH users
 
 # Common network ranges
 LOOPBACK="127.0.0.0/8"					# Reserved loopback address range
@@ -65,12 +73,31 @@ SQUID_PORT="3128"						# (TCP) Squid
 SSH_PORTS="1024:65535"					# RSA authentication
 #SSH_PORTS="1020:65535"					# RHOST authentication
 
+# Traceroute usually use -S 32769:65535 -D 33434:33523
+TRACEROUTE_SRC_PORTS="32769:65535"
+TRACEROUTE_DEST_PORTS="33434:33523"
+
+# Defining user-defined chains
+USER_CHAINS="EXT-input					EXT-output \
+			 tcp-state-flags			connection-tracking \
+			 source-address-check		destination-address-check \
+			 local-dns-server-query 	remote-dns-server-response \
+			 local-tcp-client-request   remote-tcp-server-response \
+			 remote-tcp-client-request 	local-tcp-server-response \
+			 local-udp-client-request 	remote-udp-server-response \
+			 local-dhcp-client-query 	remote-dhcp-server-response \
+			 EXT-icmp-out 				EXT-icmp-in \
+			 EXT-log-in 				EXT-log-out \
+			 log-tcp-state \
+			"
+
 #################################################################
+
 # Enable broadcast echo protection 
 # ignore an echo request to a broadcast address thus preventing compromising all host 
 # at one time
 echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
-b
+
 # Disable Source Routed Packages 
 # source routing, also called path addressing,allows a sender
 # of a packet to partially or completely specify the route the
@@ -155,594 +182,416 @@ $IPT -P INPUT DROP
 $IPT -P OUTPUT DROP
 $IPT -P FORWARD DROP
 
-#################################################################
-# Stealth Scans and TCP State Flags
-# All of the bits are cleared
-$IPT -A INPUT -p tcp --tcp-flags ALL none -j DROP
-
-# SYN and FIN are both Set
-$IPT -A INPUT -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
-
-# SYN and RST are both Set
-$IPT -A INPUT -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
-
-# FIN and RST are both Set
-$IPT -A INPUT -p tcp --tcp-flags FIN,RST FIN,RST -j DROP
-
-# FIN is the only bit set ,but not with the expected accompanying ACK set
-$IPT -A INPUT -p tcp --tcp-flags FIN,ACK FIN -j DROP
-
-# PSH is the only bit set ,but not with the expected accompanying ACK set
-$IPT -A INPUT -p tcp --tcp-flags PSH,ACK PSH -j DROP
-
-# URG is the only bit set ,but not with the expected accompanying ACK set
-$IPT -A INPUT -p tcp --tcp-flags URG,ACK URG -j DROP
+# Create user-defined chains 
+for chain in "${USER_CHAINS}";do 
+	$IPT -N ${chain}
+done
 
 #################################################################
-# Using Conntrack to bypass rule checking
-if [ $CONNECTION_TRACKING = "1" ];then
-	$IPT -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-	$IPT -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-	$IPT -A INPUT -m state --state INVALID -j LOG \
-			--log-prefix "INVALID input: "
-	$IPT -A INPUT -m state --state INVALID -j DROP
-
-	$IPT -A OUTPUT -m state --state INVALID -j LOG \
-			--log-prefix "INVALID output: "
-	$IPT -A OUTPUT -m state --state INVALID -j DROP
-fi
-
-#################################################################
-# Source Address Spoofing and Other Bad Address
-# Refuse spoofed packets pretending to be from IPADDR of server's 
-# ethernet adaptor
-$IPT -A INPUT -i $INTERNET -s $IPADDR -j DROP
-
-# There is no need to block outgoing packet's destined for yourself 
-# as it will be sent to lo interface anyway,this is to say,the packet 
-# sent from your machine and to your machine never reaches external 
-# interface
-
-# Refuse packets claiming to be from CLASS_A,CLASS_B and CLASS_C 
-# private network
-$IPT -A INPUT -i $INTERNET -s $CLASS_A -j DROP
-$IPT -A INPUT -i $INTERNET -s $CLASS_B -j DROP
-$IPT -A INPUT -i $INTERNET -s $CLASS_C -j DROP
-
-# Refuse packages claiming from loopback interfaces
-$IPT -A INPUT -i $INTERNET -s $LOOPBACK -j DROP
-
-# Refuse malformed broadcast packets
-$IPT -A INPUT -i $INTERNET -s $BROADCAST_DEST -j LOG
-$IPT -A INPUT -i $INTERNET -s $BROADCAST_DEST -j DROP
-
-$IPT -A INPUT -i $INTERNET -d $BROADCAST_SRC -j LOG
-$IPT -A INPUT -i $INTERNET -d $BROADCAST_SRC -j LOG
-
-if "$DHCP_CLIENT" = "0" ];then
-	# Refuse directed broadcasts used to map networks and form
-	# DOS attacks
-	$IPT -A INPUT -i $INTERNET -d $SUBNET_BASE -j DROP
-	$IPT -A INPUT -i $INTERNET -d $SUBNET_BROADCAST -j DROP
-
-	# Refuse limited broadcasts
-	$IPT -A INPUT -i $INTERNET -d $BROADCAST_DEST -j DROP
-fi
-
-# Refuse CLASS_D multicast address
-# Illegal as soure address
-$IPT -A INPUT -i $INTERNET -s $CLASS_D_MULTICAST -j DROP
-
-# Legitimate multicast packets are always UDP packets
-# Refuse any not-udp packets to CLASS_D_MULTICAST address
-$IPT -A INPUT -i $INTERNET ! -p udp -d $CLASS_D_MULTICAST -j DROP
-
-# Accept incoming multicast packets
-$IPT -A INPUT -i $INTERNET -p udp -d $CLASS_D_MULTICAST -j ACCEPT
-
-# Refuse packets from CLASS_E address
-$IPT -A INPUT -i $INTERNET -s $CLASS_E_RESERVED_NET -j DROP
-
-if [ $DHCP_CLIENT = "1" ];then
-	# following rules matches DHCP offering
-	$IPT -A INPUT -i $INTERNET -p udp \
-		-s $BROADCAST_SRC --sport 67 \
-		-d $BROADCAST_DEST --dport 68 -j ACCEPT
-fi
-# refuse address defined as reserved by the IANA
-# 0.*.*.*      					-Can not be block due to DHCP 
-# 169.254.0.0/16 				- Link local networks
-# 192.0.2.0/24					-TEST-NET
-
-$IPT -A INPUT -i $INTERNET -s 0.0.0.0/8 -j DROP
-$IPT -A INPUT -i $INTERNET -s 169.254.0.0/16 -j DROP
-$IPT -A INPUT -i $INTERNET -s 192.0.2.0/24 -j DROP
-
-# X Window connection establishment
-# Refuse initializing from server to other machine
-$IPT -A OUTPUT -o $INTERNET -p tcp --syn --destination-port=$XWINDOWS_PORTS -j REJECT
-
-# Refuse all incoming establishment attemps to XWindows as all X traffic should
-# be tunnelled through SSH
-$IPT -A INPUT -i $INTERNET -p tcp --destination-port=$XWINDOWS_PORTS -m state --state=new -j DROP
-
-
-# Establising a connection over TCP to NFS, OpenWindows, Squid, or SOCKS
-
-$IPT -A INPUT -i $INTERNET -p tcp \
--m multiport --destination-port \
-$NFS_PORT,$OPENWINDOWS_PORT,$SQUID_PORT,$SOCKS_PORT \
---syn -j DROP
-
-$IPT -A OUTPUT -o $INTERNET -p tcp \
--m multiport --destination-port \
-$NFS_PORT,$OPENWINDOWS_PORT,$SQUID_PORT,$SOCKS_PORT \
---syn -j REJECT
-
-
-# NFS and RPC lockd
-$IPT -A INPUT -i $INTERNET -p udp \
--m multiport --destination-port \
-$NFS_PORT,$LOCKD_PORT -j DROP
-
-$IPT -A OUTPUT -o $INTERNET -p udp \
--m multiport --destination-port \
-$NFS_PORT,$LOCKD_PORT -j REJECT
-
-
-#################################################################
-# DNS Name Server
-
-# DNS Forwarding Name Server or client requests
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p udp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		-d $NAMESEVER --dport 53 \
-		-m state --state NEW -j ACCEPT
-fi
-
-# fallback to static rules
-$IPT -A OUTPUT -o $INTERNET -p udp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	-d $NAMESEVER --dport 53 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p udp \
-	-s $NAMESEVER --sport 53 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-#................................................................
-# TCP is used for larger responses
-
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p udp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		-d $NAMESEVER --dport 53 \
-		-m state --state NEW -j ACCEPT
-fi
-
-# static entries as conntrack is not available or not present
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	-d $NAMESEVER --dport 53 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p tcp \
-	-s $NAMESEVER --sport 53 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-#................................................................
 # DNS Caching Name Server (local server to primary server)
 # Assuming using (s/d)port 53 for server-server exchange
 # client 53 <=====> server 53
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p udp \
-		-s $IPADDR --sport 53 \
-		-d $NAMESEVER --dport 53 \
-		-m state --state NEW -j ACCEPT
+# query to primary,remote server
+$IPT -A EXT-output -p udp --sport 53 --dport 53 \
+		-j local-dns-server-query
+
+$IPT -A EXT-input -p udp --sport 53 --dport 53 \
+		-j remote-dns-server-response
+
+# query to primary,remote server over TCP
+$IPT -A EXT-output -p tcp --sport $UNPRIVPORTS --dport 53 \
+		-j local-dns-server-query
+
+$IPT -A EXT-input -p tcp --sport 53 --dport $UNPRIVPORTS \
+		-j remote-dns-server-response
+
+# DNS Forwarding Name Server or client requests
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-dns-server-query \
+			-d $NAMESEVER_1 \
+			-m state --state NEW -j ACCEPT
+
+	$IPT -A local-dns-server-query \
+			-d $NAMESEVER_2 \
+			-m state --state NEW -j ACCEPT
+			
+	$IPT -A local-dns-server-query \
+			-d $NAMESEVER_3 \
+			-m state --state NEW -j ACCEPT
 fi
 
-# static entries as conntrack is not available or not present
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport 53 \
-	-d $NAMESEVER --dport 53 -j ACCEPT
+$IPT -A local-dns-server-query \
+		-d $NAMESEVER_1 -j ACCEPT
 
-$IPT -A INPUT -i $INTERNET -p tcp \
-	-s $NAMESEVER --sport 53 \
-	-d $IPADDR --dport 53 -j ACCEPT
+$IPT -A local-dns-server-query \
+		-d $NAMESEVER_2 -j ACCEPT
+	
+$IPT -A local-dns-server-query \
+		-d $NAMESEVER_3 -j ACCEPT
 
-#................................................................
-# Incoming Remote Client Requests to local Servers
-if [ $ACCEPT_AUTH = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A OUTPUT -o $INTERNET -p udp \
-			-s $IPADDR --sport $UNPRIVPORTS \
-			-d $NAMESEVER --dport 113 \
-			-m state --state NEW -j ACCEPT
-	fi
-# static entries as conntrack is not available or not present
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		-d $NAMESEVER --dport 53 -j ACCEPT
+# DNS server respond to local requests
 
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		-s $NAMESEVER --sport 113 \
-		-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-else
-	$IPT -A INPUT -i $INTERNET -p tcp \
+$IPT -A remote-dns-server-response \
+		-s $NAMESEVER_1 -j ACCEPT
+
+$IPT -A remote-dns-server-response \
+		-s $NAMESEVER_2 -j ACCEPT
+
+$IPT -A remote-dns-server-response \
+		-s $NAMESEVER_3 -j ACCEPT
+
+#################################################################
+# Local TCP client, remote server
+
+$IPT -A EXT-output -p tcp \
 		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 113 -j REJECT --reject-with tcp-reset
-fi
+		-j local-tcp-client-request 
+
+$IPT -A EXT-input -p tcp \
+		--dport $UNPRIVPORTS \
+		-j remote-tcp-server-response
 
 #################################################################
-# Sening Email to External Email Server (TCP SMTP Port 25,POP Port 110,IMAP Port 143)
-# Use <-d $SMTP_RELAY> if you are using ISP's relaying service
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport 25 -m state --state NEW -j ACCEPT
+# Local TCP client output and remote server input chains
+
+# SSH client
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p tcp \
+			--dport 22 \
+			-m state --state NEW -j ACCEPT
 fi
 
-# fallback to stateless firewall rules
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport 25 -j ACCEPT
+$IPT -A local-tcp-client-request -p tcp \
+		--dport 22 -j ACCEPT
 
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
---sport 25 \
--d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+$IPT -A remote-tcp-server-response -p tcp \
+		--sport 22 -j ACCEPT
 
-#################################################################
-# Reveiving mail as a local SMTP server
-if [ $SMTP_SERVER = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A INPUT -i $INTERNET -p tcp \
-			--sport $UNPRIVPORTS \
-			-d $IPADDR --dport 25 \
-			-m state --state NEW ACCEPT
-	fi
 
-# fallback to stateless 
-	$IPT -A INPUT -i $INTERNET -p tcp \
+#...............................................................
+# Client rules for HTTP, HTTPS, AUTH and FTP control requests
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p TCP \
+			-m multiport --dports 80,443,21 \
+			--syn -m state --state NEW -j ACCEPT
+fi
+
+$IPT -A local-tcp-client-request -p tcp \ 
+		-m multiport --dports 80,443,21 \
+		--syn -j ACCEPT
+
+
+# Using this rule is assuming you are not hosting an webservice nor a ftp server
+$IPT -A remote-tcp-server-response -p tcp ! --syn \ 
+		-m multiport --sports 80,443,21 \
+		-j ACCEPT
+
+#...............................................................
+# POPs client
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p tcp \
+			--dport 995 \
+			-m state --state NEW \
+			-j ACCEPT
+fi
+
+$IPT -A local-tcp-client-request -p tcp \
+		--dport 995 \
+		-j ACCEPT
+
+$IPT -A remote-tcp-server-response -p tcp ! --syn \
+		--sport 995 \
+		-j ACCEPT
+
+#...............................................................
+# SMTP mail client
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p tcp \
+			<-s $SMTP_SERVER> --dport 25 \
+			-m state --state NEW \
+			-j ACCEPT
+fi
+
+$IPT -A local-tcp-client-request -p tcp \
+		<-s $SMTP_SERVER> --dport 25 \
+		-j ACCEPT
+
+$IPT -A remote-tcp-server-response -p tcp ! --syn \
+		<-s $SMTP_SERVER> --sport 25 \
+		-j ACCEPT
+
+#...............................................................
+# Usenet news client
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p tcp \
+			<-s $NEWS_SERVER> --dport 119 \
+			-m state --state NEW \
+			-j ACCEPT
+fi
+
+$IPT -A local-tcp-client-request -p tcp \
+		<-s $NEWS_SERVER> --dport 119 \
+		-j ACCEPT
+
+$IPT -A remote-tcp-server-response -p tcp ! --syn \
+		<-s $NEWS_SERVER> --sport 119 \
+		-j ACCEPT
+
+#...............................................................
+# FTP client - passive mdoe data channel connection
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-tcp-client-request -p tcp \
+			--dport $UNPRIVPORTS \
+			-m state --state NEW \
+			-j ACCEPT
+fi
+
+$IPT -A local-tcp-client-request -p tcp \
+		--dport $UNPRIVPORTS \
+		-j ACCEPT
+
+$IPT -A remote-tcp-server-response -p tcp ! --syn \
 		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 25 -j ACCEPT
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 25 \
-		--dport $UNPRIVPORTS -j ACCEPT
-fi
-
-#################################################################
-# Retriving Mail as a POP Client (TCP Port 110 or 995)
-if [ $POP_CLIENT = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A OUTPUT -p tcp \
-			-s $IPADDR --sport $UNPRIVPORTS \
-			-d $POP_SERVER --dport 995 \
-			-m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		-d $POP_SERVER --dport 995 -j ACCEPT
-
-	$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-		-s $POP_SERVER --sport 995 \
-		-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-fi
-
-#################################################################
-# Receiving Mail as an IMAP Client
-if [ $IMAP_CLIENT = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A OUTPUT -p tcp \
-			-s $IPADDR --sport $UNPRIVPORTS \
-			-d $IMAP_SERVER --dport 143 \
-			-m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		-d $IMAP_SERVER --dport 143 -j ACCEPT
-
-	$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-		-s $IMAP_SERVER --sport 143 \
-		-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-fi
-
-#################################################################
-# Hosting a POP over SSL server for remote clients
-# POP_CLIENTS="network/mask"
-if [ $POP_SERVER = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A INPUT -i $INTERNET -p tcp \
-			<-s clients> --sport $UNPRIVPORTS \
-			-d $IPADDR --dport 995 \
-			-m state --state NEW -j ACCEPT
-	fi
-
-	# fallback to stateless
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		<-s clients> --sport $UNPRIVPORTS \
-		-d $IPADDR --dport 995 -j ACCEPT
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		<-d clients> --dport $UNPRIVPORTS \
-		-s $IPADDR --sport 995 -j ACCEPT
-fi
-
-#################################################################
-# SSH (TCP Port 22)
-# as ssh client
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $SSH_PORTS \
-		--dport 22 \
-		-m state --state NEW -j ACCEPT
-fi
-
-# fallback to stateless
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $SSH_PORTS \
-	--dport 22 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-	-d $IPADDR --dport $SSH_PORTS \
-	--sport 22 -j ACCEPT
+		-j ACCEPT
 
 
+#...............................................................
+# Local TCP server ,remote client
 
-#................................................................
-# as ssh server
-if [ $SSH_SERVER = "1" ];then
-	if [ ${CONNECTION_TRACKING} = "1" ];then
-		$IPT -A INPUT -i $INTERNET -p tcp \
-			--sport $SSH_PORTS \
-			-d $IPADDR --dport 22 \
-			-m state --state NEW -j ACCEPT
-	fi
+$IPT -A EXT-input -p tcp \
+		--sport $UNPRIVPORTS \
+		-j remote-tcp-client-request
 
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		-d $IPADDR --dport 22 \
-		--sport $SSH_PORTS -j ACCEPT
+$IPT -A EXT-output -p tcp ! --syn \
+		--dport $UNPRIVPORTS \
+		-j local-tcp-server-response
 
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 22 \
-		--dport $SSH_PORTS -j ACCEPT
-fi
+# Kludge for incoming FTP data channel connections 
+# from remote servers using port mode 
+# The state modules treat this connection as RELATED
+# if the ip_conntrack_ftp module is loaded
 
-#################################################################
-# FTP (TCP Port 21,20 or unprivileged ports)
-# allow outgoing FTP control stream
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport 21 -m state --state NEW -j ACCEPT
-fi
-
-# fallback to stateless
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $SSH_PORTS \
-	--dport 21 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-	-d $IPADDR --dport $UNPRIVPORTS \
-	--sport 21 -j ACCEPT
-
-# Port-mode FTP data channels
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	# This rule is not neccessary if ip_conntrack_ftp module is used
-	$IPT -A INPUT -i $INTERNET -p tcp \
+$IPT -A EXT-input -p tcp \
 		--sport 20 \
-		-d $IPADDR --dport $UNPRIVPORTS \
-		-m state --state NEW -j ACCEPT
+		--dport $UNPRIVPORTS \
+		-j ACCEPT
+
+$IPT -A EXT-output -p tcp ! --syn \
+		--sport $UNPRIVPORTS \
+		--dport 20 \
+		-j ACCEPT
+
+#...............................................................
+# Remote TCP client input and local server output chains
+
+# SSH server 
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A remote-tcp-client-request -p tcp \
+			<-s $HOSTS> --dport 22 \
+			-m state --state NEW \
+			-j ACCEPT
 fi
 
-$IPT -A INPUT -i $INTERNET -p tcp \
-	--sport 20 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+$IPT -A remote-tcp-client-request -p tcp \
+		--dport 22 \
+		-j ACCEPT
 
-$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport 20 -j ACCEPT
+$IPT -A local-tcp-server-response -p tcp ! --syn \
+		--sport 22 \
+		-j ACCEPT
 
-# Passive-mode FTP data channels
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	# if ip_conntrack_ftp is used this rule is not neccessary
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport $UNPRIVPORTS \
-		-m state --state NEW -j ACCEPT
+#...............................................................
+# AUTH identd server
 
-$IPT -A INPUT -i $INTERNET -p tcp \
-	--sport $UNPRIVPORTS \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport $UNPRIVPORTS -j ACCEPT
-
-#................................................................
-# Incoming Remote Client Requests to Local Servers
-if [ $FTP_SERVER = "1" ];then
-	if [ $CONNECTION_TRACKING = "1" ];then
-		$IPT -A INPUT -i $INTERNET -p tcp \
-			--sport $UNPRIVPORTS
-			-d $IPADDR --dport 21 \
-			-m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 21 -j ACCEPT
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 21 \
-		--dport $UNPRIVPORTS -j ACCEPT
-
-	# Outgoing Port-mode Data Channel connection to Port 20
-	if [ $CONNECTION_TRACKING = "1" ];then
-		$IPT -A OUTPUT -p tcp \
-		-s $IPADDR --sport 20 \
-		--dport $UNPRIVPORTS -m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 20 \
-		--dport $UNPRIVPORTS -j ACCEPT
-
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 20 -j ACCEPT
-
-	# Incoming Passive Mode Data Channel connection to unprivileged ports
-	if [ $CONNECTION_TRACKING = "1" ];then
-		$IPT -A INPUT -p tcp \
-		-d $IPADDR --dport $UNPRIVPORTS \
-		--sport $UNPRIVPORTS -m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport $UNPRIVPORTS -j ACCEPT
+if [ "$ACCEPT_AUTH" = "1" ];then
+	$IPT -A remote-tcp-client-request -p tcp \
+			--dport 113 \
+			-m state --state NEW \
+			-j ACCEPT
 fi
 
-#################################################################
-# HTTP Web Traffic (TCP Port 80)
+$IPT -A remote-tcp-client-request -p tcp \
+		--dport 113 \
+		-j ACCEPT
 
-# Outgoing Local client requests to remote server
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -i $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport 80 -m state --state NEW -j ACCEPT
+$IPT -A local-tcp-server-response -p tcp ! --syn \
+		--sport 113 \
+		-j ACCEPT
 
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport 80 -j ACCEPT
 
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-	--sport 80 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+################################################################
+# Local UDP client, remote server
 
-#................................................................
-# Incoming Remote Client Requests to Local Servers
-if [ $WEB_SERVER = "1" ];then
-	if [ $CONNECTION_TRACKING = "1" ];then
-		$IPT -A INPUT -p tcp \
-		-d $IPADDR --dport 80 \
-		--sport $UNPRIVPORTS -m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A INPUT -i $INTERNET -p tcp \
+$IPT -A EXT-output -p udp \
 		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 80 -j ACCEPT
+		-j local-udp-client-request
 
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 80 \
-		--dport $UNPRIVPORTS -j ACCEPT
+$IPT -A EXT-input -p udp \
+		--dport $UNPRIVPORTS \
+		-j remote-udp-server-response
+
+#...............................................................
+# NTP time client
+
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A local-udp-client-request -p udp \
+			-d $TIME_SERVER --dport 123 \
+			-m state --state NEW \
+			-j ACCEPT
 fi
 
-#################################################################
-# SSL Web Traffic (TCP Port 443)
-
-# Outgoing local client requests to remote server
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -i $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport 443 -m state --state NEW -j ACCEPT
-
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport 443 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-	--sport 443 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-#................................................................
-# Incoming Remote Client Requests to Local Servers
-if [ $WEB_SERVER = "1" ];then
-	if [ $CONNECTION_TRACKING = "1" ];then
-		$IPT -A INPUT -p tcp \
-		-d $IPADDR --dport 443 \
-		--sport $UNPRIVPORTS -m state --state NEW -j ACCEPT
-	fi
-
-	$IPT -A INPUT -i $INTERNET -p tcp \
-		--sport $UNPRIVPORTS \
-		-d $IPADDR --dport 443 -j ACCEPT
-
-	$IPT -A OUTPUT -o $INTERNET -p tcp ! --syn \
-		-s $IPADDR --sport 443 \
-		--dport $UNPRIVPORTS -j ACCEPT
-fi
-
-#################################################################
-# whois (TCP Port 43)
-
-# Outgoing local client requests to remote server
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -i $INTERNET -p tcp \
-		-s $IPADDR --sport $UNPRIVPORTS \
-		--dport 43 -m state --state NEW -j ACCEPT
-
-$IPT -A OUTPUT -o $INTERNET -p tcp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	--dport 43 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p tcp ! --syn \
-	--sport 43 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
-
-#################################################################
-# Accessing Remote Network Time Servers (UDP Port 123)
-# query as a client and with source port fixed on port 123
-if [ ${CONNECTION_TRACKING} = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p udp \
-		-s $IPADDR --sport $UNPRIVPORTS \
+$IPT -A local-udp-client-request -p udp \
 		-d $TIME_SERVER --dport 123 \
-		-m state --state NEW -j ACCEPT
+		-j ACCEPT
+
+$IPT -A remote-tcp-server-response -p udp \
+		-s $TIME_SERVER --sport 123 \
+		-j ACCEPT
+
+################################################################
+# ICMP traffic
+
+# Log and drop initial ICMP fragment
+$IPT -A EXT-icmp-in --fragment -j LOG --log-prefix "Fragmented incoming ICMP: "
+
+$IPT -A EXT-icmp-in --fragment -j DROP
+
+$IPT -A EXT-icmp-out --fragment -j LOG --log-prefix "Fragmented outgoing ICMP: "
+
+$IPT -A EXT-icmp-out --fragment -j DROP
+
+# Outgoing ping
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A EXT-icmp-out -p icmp \
+			--icmp-type echo-request \
+			-m state --state NEW \
+			-j ACCEPT
 fi
 
-$IPT -A OUTPUT -o $INTERNET -p udp \
-	-s $IPADDR --sport $UNPRIVPORTS \
-	-d $TIME_SERVER --dport 123 -j ACCEPT
+$IPT -A EXT-icmp-out -p icmp \
+		--icmp-type echo-request -j ACCEPT
 
-$IPT -A INPUT -i $INTERNET -p udp \
-	-s $TIME_SERVER --sport 123 \
-	-d $IPADDR --dport $UNPRIVPORTS -j ACCEPT
+# Incoming echo-reply
+$IPT -A EXT-icmp-in -p icmp \
+		--icmp-type echo-reply -j ACCEPT
 
+# Incoming ping
+if [ "CONNECTION_TRACKING" = "1" ];then
+	$IPT -A EXT-icmp-in -p icmp \
+			-s $AUTH_HOSTS
+			--icmp-type echo-request \
+			-m state --state NEW \
+			-j ACCEPT
+fi
+
+$IPT -A EXT-icmp-in -p icmp \
+		-s $AUTH_HOSTS --icmp-type echo-request -j ACCEPT
+
+
+$IPT -A EXT-icmp-out -p icmp \
+		-d $AUTH_HOSTS --icmp-type echo-reply -j ACCEPT
+
+# Destination Unreachable Type 3
+$IPT -A EXT-icmp-out -p icmp \
+		--icmp-type fragmentation-needed -j ACCEPT
+
+$IPT -A EXT-icmp-in -p icmp \
+		--icmp-type destination-unreachable -j ACCEPT
+
+# Parameter-problem
+$IPT -A EXT-icmp-out -p icmp \
+		--icmp-type parameter-problem -j ACCEPT
+
+$IPT -a EXT-icmp-in -p icmp \
+		--icmp-type parameter-problem -j ACCEPT
+
+# Time Exceeded
+$IPT -A EXT-icmp-in -p icmp \
+		--icmp-type time-exceeded -j ACCEPT
+
+# Source Quench
+$IPT -A EXT-icmp-out -p icmp \
+		--icmp-type source-quench -j ACCEPT
 
 #################################################################
-# Accessing ISP's DHCP Server (UDP Port 67-68)
+# Stealth Scans and TCP State Flags
 
-# Some broadcast packets are explicitly ignored by the firewall
-# Others are dropped by the default policy
-# DHCP tests must precede broadcast-related rules ,as DHCP relies 
-# on broadcast traffic initially
+# All of the bits are cleared
+$IPT -A tcp-state-flags -p tcp --tcp-flags ALL none -j DROP
+
+# SYN and FIN are both Set
+$IPT -A tcp-state-flags -p tcp --tcp-flags SYN,FIN SYN,FIN -j DROP
+
+# SYN and RST are both Set
+$IPT -A tcp-state-flags -p tcp --tcp-flags SYN,RST SYN,RST -j DROP
+
+# FIN and RST are both Set
+$IPT -A tcp-state-flags -p tcp --tcp-flags FIN,RST FIN,RST -j DROP
+
+# FIN is the only bit set ,but not with the expected accompanying ACK set
+$IPT -A tcp-state-flags -p tcp --tcp-flags FIN,ACK FIN -j DROP
+
+# PSH is the only bit set ,but not with the expected accompanying ACK set
+$IPT -A tcp-state-flags -p tcp --tcp-flags PSH,ACK PSH -j DROP
+
+# URG is the only bit set ,but not with the expected accompanying ACK set
+$IPT -A tcp-state-flags -p tcp --tcp-flags URG,ACK URG -j DROP
+
+#################################################################
+# Log and drop TCP packets with bad state combinations
+
+$IPT -A log-tcp-state -p tcp -j LOG \
+		--log-prefix "Illegal TCP state: " \
+		--log-ip-options --log-tcp-options
+
+$IPT -A log-tcp-state -j DROP
+
+#################################################################
+# Bypass rule checking for ESTABLISHED exchanges
+
+if [ $CONNECTION_TRACKING = "1" ];then
+	$IPT -A connection-tracking -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+	$IPT -A EXT-input -m state --state INVALID -j LOG \
+			--log-prefix "INVALID packet: "
+	$IPT -A connection-tracking -m state --state INVALID -j DROP
+fi
+
+#################################################################
+# DHCP traffic
+
+# Some broadcast packets are explicitly ignored ny firewall
+# Others are dropped by default policy
+# DHCP tests must precede broadcast-related rules, as DHCP relies
+# on broadcasts traffic initially
 
 if [ $DHCP_CLIENT = "1" ];then
 	# Initialization or rebinding :No lease or lease time expired
-	$IPT -A OUTPUT -o $INTERNET -p udp \
+	$IPT -A local-dhcp-client-query -p udp \
 		-s $BROADCAST_SRC --sport 68 \
 		-d $BROADCAST_DEST --dport 67 -j ACCEPT
 
 	# Incoming DHCPOFFER from available DHCP servers
-	$IPT -A INPUT -i $INTERNET -p udp \
+	$IPT -A remote-dhcp-server-response -p udp \
 		-s $BROADCAST_SRC --sport 67 \
 		-d $BROADCAST_DEST --dport 68 -j ACCEPT
 
 	# Fall back to Initialization
 	# The client knows its server, to perform a renew or confirm after reboot
-	$IPT -A OUTPUT -o $INTERNET -p udp \
+	$IPT -A local-dhcp-client-query -p udp \
 		-s $BROADCAST_SRC --sport 68 \
 		-d $DHCP_SERVER --dport 67 -j ACCEPT
 
 	# Incoming DHCPOFFER as a unicast to our server
-	$IPT -A INPUT -i $INTERNET -p udp \
+	$IPT -A remote-dhcp-server-response -p udp \
 		-s $DHCP_SERVER --sport 67 \
 		-d $BROADCAST_DEST --dport 68 -j ACCEPT
 
@@ -756,87 +605,191 @@ if [ $DHCP_CLIENT = "1" ];then
 	# and the rule must precede any general rules that block such incoming
 	# broadcast packets
 
-# Incoming DHCPOFFER from available DHCP server
-$IPT -A INPUT -i $INTERNET -p udp \
-	-s $DHCP_SERVER --sport 67 \
-	--dport 68 -j ACCEPT
+	# Incoming DHCPOFFER from available DHCP server
+	$IPT -A remote-dhcp-server-response -p udp \
+		-s $DHCP_SERVER --sport 67 \
+		--dport 68 -j ACCEPT
+	# Lease renewal
+	$IPT -A local-dhcp-client-query \
+			-s $IPADDR --sport 68 \
+			-d $DHCP_SERVER --dport 67 -j ACCEPT
+fi
 
-$IPT -A OUTPUT -o $INTERNET -p udp \
-	-s $IPADDR --sport 68 \
-	-d $IPADDR --dport 67 -j ACCEPT
-
-$IPT -A INPUT -i $INTERNET -p udp \
-	-s $DHCP_SERVER --sport 67 \
-	-d $IPADDR --dport 68 -j ACCEPT
-
-# Refuse directed broadcasts
-# mapping networks and form DOS attacks
-$IPT -A INPUT -i $INTERNET -d $SUBNET_BASE -j DROP
-$IPT -A INPUT -i $INTERNET -d $SUBNET_BROADCAST -j DROP
-
-# Refuse limited broadcasts
-$IPT -A INPUT -i $INTERNET -d $BROADCAST_DEST -j DROP
 
 #################################################################
-# ICMP Control and Status messages
+# Source Address Checking
+# Refuse spoofed packets pretending to be from IPADDR of server's 
+# ethernet adaptor
+$IPT -A source-address-check -s $IPADDR -j DROP
 
-# Log and drop initial ICMP fragments
-$IPT -A INPUT -i $INTERNET --fragment -p icmp -j LOG \
-		--log-prefix "Fragmented ICMP: "
-$IPT -A INPUT -i $INTERNET --fragment -p icmp -j DROP
+# There is no need to block outgoing packet's destined for yourself 
+# as it will be sent to lo interface anyway,this is to say,the packet 
+# sent from your machine and to your machine never reaches external 
+# interface
 
-$IPT -A INPUT -i $INTERNET -p icmp \
-		--icmp-type source-quench -d $IPADDR -j ACCEPT
+# Refuse packets claiming to be from CLASS_A,CLASS_B and CLASS_C 
+# private network
+$IPT -A source-address-check -s $CLASS_A -j DROP
+$IPT -A source-address-check -s $CLASS_B -j DROP
+$IPT -A source-address-check -s $CLASS_C -j DROP
 
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-		--icmp-type source-quench -s $IPADDR -j ACCEPT
+# Refuse CLASS_D multicast address
+# Illegal as soure address
+$IPT -A source-address-check -s $CLASS_D_MULTICAST -j DROP
+# Refuse packets from CLASS_E address
+$IPT -A source-address-check -s $CLASS_E_RESERVED_NET -j DROP
 
-$IPT -A INPUT -i $INTERNET -p icmp \
-		--icmp-type parameter-problem -d $IPADDR -j ACCEPT
+# Refuse packages claiming from loopback interfaces
+$IPT -A source-address-check -s $LOOPBACK -j DROP
 
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-		--icmp-type parameter-problem -s $IPADDR -j ACCEPT
+# refuse address defined as reserved by the IANA
+# 0.*.*.*      					-Can not be block due to DHCP 
+# 169.254.0.0/16 				- Link local networks
+# 192.0.2.0/24					-TEST-NET
+$IPT -A source-address-check -s 0.0.0.0/8 -j DROP
+$IPT -A source-address-check -s 169.254.0.0/16 -j DROP
+$IPT -A source-address-check -s 192.0.2.0/24 -j DROP
 
-$IPT -A INPUT -i $INTERNET -p icmp \
-		--icmp-type destination-unreachable -d $IPADDR -j ACCEPT
+# Refuse malformed broadcast packets
+$IPT -A source-address-check -s $BROADCAST_DEST -j LOG
+$IPT -A source-address-check -s $BROADCAST_DEST -j DROP
 
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-		--icmp-type fragmentation-needed -s $IPADDR -j ACCEPT
+#################################################################
+# Destination Address Checking
 
-# Do not log dropped outgoing icmp packets
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-	-s $IPADDR icmp-type destination-unreachable -j DROP
+# Block directed broadcasts from the Internet
+$IPT -A destination-address-check -d
 
-# Allowing outgoing ping to go to anywhere
-if [ $CONNECTION_TRACKING = "1" ];then
-	$IPT -A OUTPUT -o $INTERNET -p icmp \
-		--icmp-type echo-request -s $IPADDR \
-		-m state --state NEW -j ACCEPT
+# Drop malformed broadcast packets
+$IPT -A destination-address-check -d $BROADCAST_DEST -j DROP
+$IPT -A destination-address-check -d $SUBNET_BASE -j DROP
+$IPT -A destination-address-check -d $SUBNET_BROADCAST -j DROP
+
+# Legitimate multicast packets are always UDP packets
+# Refuse any not-udp packets to CLASS_D_MULTICAST address
+$IPT -A destination-address-check ! -p udp -d $CLASS_D_MULTICAST -j DROP
+# Accept incoming multicast packets
+$IPT -A destination-address-check -p udp -d $CLASS_D_MULTICAST -j ACCEP
+
+#################################################################
+# Logging rules prior to default dropping policy
+
+# ICMP rules default limit ==> 5 packets per second
+$IPT -A EXT-log-in -p icmp \
+		! --icmp-type echo-request -m limit -j LOG
+
+# TCP rules
+$IPT -A EXT-log-in -p tcp \
+		--dport 0:19 -j LOG
+
+# Skip ftp, telnet, ssh
+$IPT -A EXT-log-in -p tcp \
+		--dport 24 -j LOG
+
+# Skip SMTP
+$IPT -A EXT-log-in -p tcp \
+		--dport 26:78 -j LOG
+
+# Skip finger, www
+$IPT -A EXT-log-in -p tcp \
+		--dport 81:109 -j LOG
+
+# Skip pop-3, sunrpc
+$IPT -A EXT-log-in -p tcp \
+		--dport 112:136 -j LOG
+
+# Skip NetBIOS
+$IPT -A EXT-log-in -p tcp \
+		--dport 140:142 -j LOG
+
+# Skip imap
+$IPT -A EXT-log-in -p tcp \
+		--dport 144:442 -j LOG
+
+# Skip secure_web/HTTP over SSL
+$IPT -A EXT-log-in -p tcp \
+		--dport 444:1023 -j LOG
+
+# UDP rules
+
+$IPT -A EXT-log-in -p udp \
+		--dport 0:110 -j LOG
+
+# Skip sunrpc 
+$IPT -A EXT-log-in -p udp \
+		--dport 112:160 -j LOG
+
+# Skip snmp		
+$IPT -A EXT-log-in -p udp \
+		--dport 163:634 -j LOG
+
+# Skip NFS mountd (could be different from port 635, improvise if needed)
+$IPT -A EXT-log-in -p udp \
+		--dport 636:5531 -j LOG
+
+# Skip pcAnywhere		
+$IPT -A EXT-log-in -p udp \
+		--dport 5633:31336 -j LOG
+
+# Skip traceroute regular ports		
+$IPT -A EXT-log-in -p udp \
+		--sport $TRACEROUTE_SRC_PORTS \
+		--dport $TRACEROUTE_DEST_PORTS -j LOG
+
+# Skip other ports		
+$IPT -A EXT-log-in -p udp \
+		--dport 33434:65535 -j LOG
+
+# Outgoing Packets
+
+# Do not log rejected outgoing ICMP destination-unreachable packets
+$IPT -A EXT-log-out -p icmp \
+		-icmp-type destination-unreachable -j DROP
+
+$IPT -A EXT-log-out -j LOG
+
+#################################################################
+# Install the User-defined Chaines on the built-in 
+# INPUT and OUTPUT chains
+
+# If TCP: Check for common stealth scan TCP state patterns
+$IPT -A INPUT -p tcp -j tcp-state-flags
+$IPT -A OUTPUT -p tcp -j tcp-state-flags
+
+if [ "$CONNECTION_TRACKING" = "1" ];then
+	# Bypassing firewall rules for already established traffic
+	$IPT -A INPUT -j connection-tracking
+	$IPT -A OUTPUT -j connection-tracking
 fi
 
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-		--icmp-type echo-request -s $IPADDR -j ACCEPT
+if [ "$DHCP_CLIENT" = "1" ];then
+	$IPT -A INPUT -i $INTERNET -p udp \
+			--sport 67 --dport 68 -j remote-tcp-server-response
 
-$IPT -A INPUT -i $INTERNET -p icmp \
-		--icmp-type echo-reply -d $IPADDR -j ACCEPT
+	$IPT -A OUTPUT -o $INTERNET -p udp \
+			--sport 68 --dport 67 -j local-dhcp-client-query
 
-# Allow incoming pings from trusted hosts
-if [ $CONNECTION_TRACKING = "1" ];then 
-	$IPT -A INPUT -i $INTERNET -p icmp \
-		-s $TRUSTED_HOSTS --icmp-type echo-request \
-		-d $IPADDR -m state --state NEW -j ACCEPT
-fi
+# Test for illegal source and definition address in incoming packets
+$IPT -A INPUT ! -p tcp -j source-address-check
+$IPT -A INPUT -p tcp --syn -j source-address-check
+$IPT -A INPUT -j destination-address-check
 
-$IPT -A INPUT -i $INTERNET -p icmp \
-	-s $TRUSTED_HOSTS -d $IPADDR --icmp-type echo-request -j ACCEPT
+# Test for illegal destination addresses in outgoing packets
+$IPT -A OUTPUT -j destination-address-check
 
-$IPT -A OUTPUT -o $INTERNET -p icmp \
-	-s $IPADDR -d $TRUSTED_HOSTS --icmp-type echo-reply -j ACCEPT
+# Standard input filtering for all incoming packets to this host
+$IPT -A INPUT -i $INTERNET -d $IPADDR -j EXT-input
 
-#################################################################	
-# log all incoming and dropped packets
-$IPT -A INPUT -i $INTERNET -p tcp -j LOG --log-prefix "Incoming but dropped: "
+# Multicast traffic 
+#### CHOOSE WHETHER TO DROP OR ACCEPT!
+$IPT -A INPUT -i $INTERNET -p udp -d $CLASS_D_MULTICAST -j [ DROP | ACCEPT ]
+$IPT -A OUTPUT -o -p udp -s $IPADDR -d $CLASS_D_MULTICAST -j [ DROP | ACCEPT ]
 
-# log all outgoing and dropped packets
-$IPT -A OUTPUT -o $INTERNET -p tcp -j LOG --log-prefix "Outgoing but Dropped: "
+# Standard output filtering for all outgoing packets from this host
+$IPT -A OUTPUT -o $INTERNET -s $IPADDR -j EXT-output
 
+# Log everything failed to come through before default policy
+$IPT -A INPUT -j EXT-log-in
+$IPT -A OUTPUT -j EXT-log-out
+
+exit 0
