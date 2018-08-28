@@ -31,7 +31,7 @@ echo "0" > /proc/sys/net/ipv4/conf/all/send_redirects
 # replied to, would result in the reply going out a different 
 # interface
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
-	echo "1" > f
+    echo "1" > f
 done
 
 # Log packets with impossible addresses (address 0.0.0.0, 
@@ -59,19 +59,21 @@ done
 
 #################################################################
 # Re-create default table and chains
-$NFT -f setup-tables.sh
-$NFT -f localhost-policy.sh
-$NFT -f connectionstate-policy.sh
+$NFT -f setup-tables
+$NFT -f localhost-policy
+$NFT -f connectionstate-policy
 
-$NFT -f invalid-policy.sh
-$NFT -f dns-policy.sh
+$NFT -f invalid-policy
+$NFT -f dns-policy
 
-$NFT -f tcp-client-policy.sh
-$NFT -f tcp-server-policy.sh
+$NFT -f tcp-client-policy
+$NFT -f tcp-server-policy
 
-$NFT -f icmp-policy.sh
-$NFT -f lgo-policy.sh
+$NFT -f icmp-policy
 
+$NFT -f log-policy
+# Default drop policy
+$NFT -f default-policy
 
 #################################################################
 # Rule Specification
@@ -287,6 +289,7 @@ $NFT add rule filter output oifname $INTERNET log prefix \"Outgoing but dropped:
 $NFT add rule filter input iifname $INTERNET drop
 $NFT add rule filter output oifname $INTERNET reject
                 
+
 
 
 

@@ -1,0 +1,14 @@
+include "nft-vars"
+table filter {
+    chain input {
+        ip saddr  { $name_server_1,$name_server_2,$name_server_3 } udp sport 53 dport 53 accept
+        ip saddr  { $name_server_1,$name_server_2,$name_server_3 } tcp sport 53 dport 53 accept
+        ip saddr  { $name_server_1,$name_server_2,$name_server_3 } udp sport 53 dport $ports_unpriv accept
+    }
+    chain output {
+        ip daddr  { $name_server_1,$name_server_2,$name_server_3 } udp sport 53 dport 53 accept
+        ip daddr  { $name_server_1,$name_server_2,$name_server_3 } tcp sport 53 dport 53 accept
+        ip daddr  { $name_server_1,$name_server_2,$name_server_3 } udp dport 53 sport $ports_unpriv accept
+        ip daddr  { $name_server_1,$name_server_2,$name_server_3 } tcp dport 53 sport $ports_unpriv accept
+    }
+}

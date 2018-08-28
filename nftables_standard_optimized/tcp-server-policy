@@ -1,0 +1,12 @@
+include "nft-vars"
+table filter {
+    chain input {
+        # custom if needed
+        # SSH server
+        ip daddr $ip_external tcp sport $ports_unpriv rcp dport {22} accept
+    }
+
+    chain output {
+
+    }
+}
