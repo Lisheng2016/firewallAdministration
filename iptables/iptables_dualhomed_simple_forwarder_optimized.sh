@@ -20,8 +20,13 @@ WEB_SERVER="0"
 SSL_SERVER="0"
 DHCP_CLIENT="0"
 POP_SERVER="0"
-POP_CLIENT="0"
+
+# Client Role
+POP_CLIENT="0" 
 IMAP_CLIENT="0"
+SSH_CLIENT="0"
+SMTP_CLIENT="0"
+HTTPFTP_CLIENT="0"
 
 # Authenticated ICMP hosts
 AUTH_HOSTS="some icmp initializing hosts"
@@ -53,7 +58,7 @@ DHCP_SERVER="my.isp.dhcp.server"		# ISP's DHCP server
 IMAP_SERVER="my.imap.server"			# External IMAP Server
 TRUSTED_HOSTS="my.hosts"				# Trusted icmp request hosts
 NEWS_SERVER="my.news.server"			# External NEWS server
-SSH_CLIENT="some clients"				# Authenticated SSH users
+SSH_CLIENTS="some clients"				# Authenticated SSH users
 
 # Common network ranges
 LOOPBACK="127.0.0.0/8"					# Reserved loopback address range
@@ -93,7 +98,7 @@ USER_CHAINS="EXT-input					EXT-output \
 			 EXT-icmp-out 				EXT-icmp-in \
 			 EXT-log-in 				EXT-log-out \
 			 log-tcp-state              LAN-input \
-             LAN-output
+             LAN-output \
 			"
 
 #################################################################
@@ -261,111 +266,94 @@ $IPT -A EXT-input -p tcp \
 # Local TCP client output and remote server input chains
 
 # SSH client
+if [ "${SSH_CLIENT}" = "1" ];then
+	if [ "CONNECTION_TRACKING" = "1" ];then
+		$IPT -A local-tcp-client-request -p tcp \
+				--dport 22 \
+				-m state --state NEW -j ACCEPT
+	fi
 
-if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-tcp-client-request -p tcp \
-			--dport 22 \
-			-m state --state NEW -j ACCEPT
+			--dport 22 -j ACCEPT
+
+	$IPT -A remote-tcp-server-response -p tcp \
+			--sport 22 -j ACCEPT
 fi
-
-$IPT -A local-tcp-client-request -p tcp \
-		--dport 22 -j ACCEPT
-
-$IPT -A remote-tcp-server-response -p tcp \
-		--sport 22 -j ACCEPT
-
 
 #...............................................................
 # Client rules for HTTP, HTTPS, AUTH and FTP control requests
+if [ "${HTTPFTP_CLIENT}" = "1" ];then
+	if [ "CONNECTION_TRACKING" = "1" ];then
+		$IPT -A local-tcp-client-request -p TCP \
+				-m multiport --dports 80,443,21 \
+				--syn -m state --state NEW -j ACCEPT
+	fi
 
-if [ "CONNECTION_TRACKING" = "1" ];then
-	$IPT -A local-tcp-client-request -p TCP \
+	$IPT -A local-tcp-client-request -p tcp \
 			-m multiport --dports 80,443,21 \
-			--syn -m state --state NEW -j ACCEPT
+			--syn -j ACCEPT
+
+
+	# Using this rule is assuming you are not hosting an webservice nor a ftp server
+	$IPT -A remote-tcp-server-response -p tcp ! --syn \
+			-m multiport --sports 80,443,21 \
+			-j ACCEPT
 fi
-
-$IPT -A local-tcp-client-request -p tcp \
-		-m multiport --dports 80,443,21 \
-		--syn -j ACCEPT
-
-
-# Using this rule is assuming you are not hosting an webservice nor a ftp server
-$IPT -A remote-tcp-server-response -p tcp ! --syn \
-		-m multiport --sports 80,443,21 \
-		-j ACCEPT
-
 #...............................................................
 # POPs client
+if [ "${POP_CLIENT}" = "1" ];then
+	if [ "CONNECTION_TRACKING" = "1" ];then
+		$IPT -A local-tcp-client-request -p tcp \
+				--dport 995 \
+				-m state --state NEW \
+				-j ACCEPT
+	fi
 
-if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-tcp-client-request -p tcp \
 			--dport 995 \
-			-m state --state NEW \
+			-j ACCEPT
+
+	$IPT -A remote-tcp-server-response -p tcp ! --syn \
+			--sport 995 \
 			-j ACCEPT
 fi
-
-$IPT -A local-tcp-client-request -p tcp \
-		--dport 995 \
-		-j ACCEPT
-
-$IPT -A remote-tcp-server-response -p tcp ! --syn \
-		--sport 995 \
-		-j ACCEPT
-
 #...............................................................
 # SMTP mail client
+if [ "$SMTP_CLIENT" = "1" ];then
+	if [ "CONNECTION_TRACKING" = "1" ];then
+		$IPT -A local-tcp-client-request -p tcp \
+				<-s $SMTP_SERVER> --dport 25 \
+				-m state --state NEW \
+				-j ACCEPT
+	fi
 
-if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-tcp-client-request -p tcp \
 			<-s $SMTP_SERVER> --dport 25 \
-			-m state --state NEW \
+			-j ACCEPT
+
+	$IPT -A remote-tcp-server-response -p tcp ! --syn \
+			<-s $SMTP_SERVER> --sport 25 \
 			-j ACCEPT
 fi
 
-$IPT -A local-tcp-client-request -p tcp \
-		<-s $SMTP_SERVER> --dport 25 \
-		-j ACCEPT
-
-$IPT -A remote-tcp-server-response -p tcp ! --syn \
-		<-s $SMTP_SERVER> --sport 25 \
-		-j ACCEPT
-
 #...............................................................
-# Usenet news client
+# FTP client - passive mode data channel connection
+if [ "$FTP_CLIENT" = "1" ];then
+	if [ "CONNECTION_TRACKING" = "1" ];then
+		$IPT -A local-tcp-client-request -p tcp \
+				--dport $UNPRIVPORTS \
+				-m state --state NEW \
+				-j ACCEPT
+	fi
 
-if [ "CONNECTION_TRACKING" = "1" ];then
-	$IPT -A local-tcp-client-request -p tcp \
-			<-s $NEWS_SERVER> --dport 119 \
-			-m state --state NEW \
-			-j ACCEPT
-fi
-
-$IPT -A local-tcp-client-request -p tcp \
-		<-s $NEWS_SERVER> --dport 119 \
-		-j ACCEPT
-
-$IPT -A remote-tcp-server-response -p tcp ! --syn \
-		<-s $NEWS_SERVER> --sport 119 \
-		-j ACCEPT
-
-#...............................................................
-# FTP client - passive mdoe data channel connection
-
-if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-tcp-client-request -p tcp \
 			--dport $UNPRIVPORTS \
-			-m state --state NEW \
+			-j ACCEPT
+
+	$IPT -A remote-tcp-server-response -p tcp ! --syn \
+			--sport $UNPRIVPORTS \
 			-j ACCEPT
 fi
-
-$IPT -A local-tcp-client-request -p tcp \
-		--dport $UNPRIVPORTS \
-		-j ACCEPT
-
-$IPT -A remote-tcp-server-response -p tcp ! --syn \
-		--sport $UNPRIVPORTS \
-		-j ACCEPT
-
 
 #...............................................................
 # Local TCP server ,remote client
@@ -400,7 +388,7 @@ $IPT -A EXT-output -p tcp ! --syn \
 
 if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
-			<-s $HOSTS> --dport 22 \
+			<-s $SSH_CLIENTS> --dport 22 \
 			-m state --state NEW \
 			-j ACCEPT
 fi
@@ -416,7 +404,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 #...............................................................
 # AUTH identd server
 
-if [ "$ACCEPT_AUTH" = "1" ];then
+if [ "$ACCEPT_AUTH" = "0" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
 			--dport 113 \
 			-m state --state NEW \
@@ -784,6 +772,7 @@ $IPT -A OUTPUT -j destination-address-check
 
 # Standard input filtering for all incoming packets to this host
 $IPT -A INPUT -i $INTERNET -d $IPADDR -j EXT-input
+$IPT -A INPUT -i $LAN_INTERFACE -j LAN-input
 
 # Multicast traffic
 #### CHOOSE WHETHER TO DROP OR ACCEPT!
@@ -792,6 +781,7 @@ $IPT -A OUTPUT -o -p udp -s $IPADDR -d $CLASS_D_MULTICAST -j [ DROP | ACCEPT ]
 
 # Standard output filtering for all outgoing packets from this host
 $IPT -A OUTPUT -o $INTERNET -s $IPADDR -j EXT-output
+$IPT -A OUTPUT -o $LAN_INTERFACE -j LAN-output
 
 # Log everything failed to come through before default policy
 $IPT -A INPUT -j EXT-log-in
@@ -802,9 +792,15 @@ $IPT -A OUTPUT -j EXT-log-out
 $IPT -A FORWARD -i $LAN_INTERFACE -o $EXTERNAL_INTERFACE \
         -p tcp -s $LAN_ADDRESSES --sport $UNPRIVPORTS \
         -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
 $IPT -A FORWARD -i $EXTERNAL_INTERFACE -o $LAN_INTERFACE \
         -p tcp -d $LAN_ADDRESSES --dport $UNPRIVPORTS \
         -m state --state ESTABLISHED,RELATED -j ACCEPT
 
+$IPT -A LAN-input -p tcp -s $LAN_ADDRESSES --sport $UNPRIVPORTS \
+		-m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
+$IPT -A LAN-output -p tcp -d $LAN_ADDRESSES --dport $UNPRIVPORTS \
+		-m state --state ESTABLISHED,RELATED -j ACCEPT
 
 exit 0
