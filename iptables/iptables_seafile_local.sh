@@ -49,12 +49,12 @@ USER_CHAINS="EXT-input EXT-output tcp-state-flags connection-tracking source-add
 
 #################################################################
 
-# Enable broadcast echo protection 
-# ignore an echo request to a broadcast address thus preventing compromising all host 
+# Enable broadcast echo protection
+# ignore an echo request to a broadcast address thus preventing compromising all host
 # at one time
 echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
 
-# Disable Source Routed Packages 
+# Disable Source Routed Packages
 # source routing, also called path addressing,allows a sender
 # of a packet to partially or completely specify the route the
 # packet takes through the network
@@ -70,14 +70,14 @@ echo "0" > /proc/sys/net/ipv4/conf/all/accept_redirects
 # Do not send ICMP redirect messages
 echo "0" > /proc/sys/net/ipv4/conf/all/send_redirects
 
-# Drop Spoofed Packets coming in on an interface ,which , if 
-# replied to, would result in the reply going out a different 
+# Drop Spoofed Packets coming in on an interface ,which , if
+# replied to, would result in the reply going out a different
 # interface
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
 	echo "1" > f
 done
 
-# Log packets with impossible addresses (address 0.0.0.0, 
+# Log packets with impossible addresses (address 0.0.0.0,
 # host 0 on any network ,any host on 127 network and Class
 # E network)
 echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
@@ -86,16 +86,16 @@ echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
 # Removing all existing rules from all chains
 # use -t to specify tables to flush
 $IPT -t filter -F
-$IPT -t nat -F 
-$IPT -t mangle -F 
+$IPT -t nat -F
+$IPT -t mangle -F
 
 # Deleting all user-defined chains
 for tables in filter nat mangle
-do 
+do
 	$IPT -t ${tables} -X
 done
 
-# Resetting Default Policies 
+# Resetting Default Policies
 for table in filter nat mangle
 do
 	case ${table} in
@@ -141,8 +141,8 @@ $IPT -P INPUT DROP
 $IPT -P OUTPUT DROP
 $IPT -P FORWARD DROP
 
-# Create user-defined chains 
-for chain in ${USER_CHAINS};do 
+# Create user-defined chains
+for chain in ${USER_CHAINS};do
 	$IPT -N ${chain}
 done
 
@@ -175,7 +175,7 @@ $IPT -A remote-dns-server-response -j ACCEPT
 
 $IPT -A EXT-output -p tcp \
 		--sport $UNPRIVPORTS \
-		-j local-tcp-client-request 
+		-j local-tcp-client-request
 
 $IPT -A EXT-input -p tcp \
 		--dport $UNPRIVPORTS \
@@ -213,7 +213,7 @@ $IPT -A local-tcp-client-request -p tcp --syn \
 		-j ACCEPT
 
 
-# Implementing this rule allows all traffic to HTTP/HTTPS port 
+# Implementing this rule allows all traffic to HTTP/HTTPS port
 $IPT -A remote-tcp-server-response -p tcp ! --syn \
         -m multiport --sports 80,443 \
 		-j ACCEPT
@@ -263,7 +263,7 @@ $IPT -A local-udp-server-response -p udp \
         --sports 111 \
         -j ACCEPT
 
-# NFS server 
+# NFS server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p udp \
@@ -298,7 +298,7 @@ $IPT -A EXT-output -p tcp ! --syn \
 #...............................................................
 # Remote TCP client input and local server output chains
 
-# SSH server 
+# SSH server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
@@ -335,7 +335,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
         --sports 111 \
         -j ACCEPT
 
-# NFS server 
+# NFS server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
@@ -355,7 +355,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
         -m multiport --sports 662,892,2049,10021,10022 \
 		-j ACCEPT
 
-# Nginx Web Server 
+# Nginx Web Server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
@@ -396,7 +396,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
         -m multiport --sports 9091 \
         -j ACCEPT
 
-# XVNC server 
+# XVNC server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
@@ -416,7 +416,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
         -m multiport --sports 6001,5901:5910 \
         -j ACCEPT
 
-# Samba server 
+# Samba server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
@@ -436,7 +436,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
         --sport 445 \
         -j ACCEPT
 
-# Squid proxy server 
+# Squid proxy server
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
@@ -648,8 +648,8 @@ if [ "$DHCP_CLIENT" = "1" ];then
 		-d $BROADCAST_DEST --dport 68 -j ACCEPT
 
 	# As a result of the above ,we're supposed to change our ip address
-	# with this message <-s $DHCP -d 255.255.255.255> 
-	# Depending on the server implementation,the destination address 
+	# with this message <-s $DHCP -d 255.255.255.255>
+	# Depending on the server implementation,the destination address
 	# can be the new address,subnet address, or the limited broadcast address
 
 	# If the network subnet address is used as the destination,
@@ -670,17 +670,17 @@ fi
 
 #################################################################
 # Source Address Checking
-# Refuse spoofed packets pretending to be from IPADDR of server's 
+# Refuse spoofed packets pretending to be from IPADDR of server's
 # ethernet adaptor
 # provide protest for protential LAND attack
 $IPT -A source-address-check -s $IPADDR -j DROP
 
-# There is no need to block outgoing packet's destined for yourself 
-# as it will be sent to lo interface anyway,this is to say,the packet 
-# sent from your machine and to your machine never reaches external 
+# There is no need to block outgoing packet's destined for yourself
+# as it will be sent to lo interface anyway,this is to say,the packet
+# sent from your machine and to your machine never reaches external
 # interface
 
-# In this case, my subnet is 10.0.1.0.24 and 192.168.1.0/24
+# In this case, my subnet is 10.0.1.0/24 and 192.168.1.0/24
 # Drop any packet drom CLASS_B is preferred
 $IPT -A source-address-check -s $CLASS_B -j DROP
 
@@ -694,7 +694,7 @@ $IPT -A source-address-check -s $CLASS_E_RESERVED_NET -j DROP
 $IPT -A source-address-check -s $LOOPBACK -j DROP
 
 # refuse address defined as reserved by the IANA
-# 0.*.*.*      					-Can not be block due to DHCP 
+# 0.*.*.*      					-Can not be block due to DHCP
 # 169.254.0.0/16 				- Link local networks
 # 192.0.2.0/24					-TEST-NET
 $IPT -A source-address-check -s 0.0.0.0/8 -j DROP
@@ -766,11 +766,11 @@ $IPT -A EXT-log-in -p tcp \
 $IPT -A EXT-log-in -p udp \
 		--dport 0:110 -j LOG
 
-# Skip sunrpc 
+# Skip sunrpc
 $IPT -A EXT-log-in -p udp \
 		--dport 112:160 -j LOG
 
-# Skip snmp		
+# Skip snmp
 $IPT -A EXT-log-in -p udp \
 		--dport 163:634 -j LOG
 
@@ -778,16 +778,16 @@ $IPT -A EXT-log-in -p udp \
 $IPT -A EXT-log-in -p udp \
 		--dport 636:5531 -j LOG
 
-# Skip pcAnywhere		
+# Skip pcAnywhere
 $IPT -A EXT-log-in -p udp \
 		--dport 5633:31336 -j LOG
 
-# Skip traceroute regular ports		
+# Skip traceroute regular ports
 $IPT -A EXT-log-in -p udp \
 		--sport $TRACEROUTE_SRC_PORTS \
 		--dport $TRACEROUTE_DEST_PORTS -j LOG
 
-# Skip other ports		
+# Skip other ports
 $IPT -A EXT-log-in -p udp \
 		--dport 33434:65535 -j LOG
 
@@ -800,7 +800,7 @@ $IPT -A EXT-log-out -p icmp \
 $IPT -A EXT-log-out -j LOG
 
 #################################################################
-# Install the User-defined Chaines on the built-in 
+# Install the User-defined Chaines on the built-in
 # INPUT and OUTPUT chains
 
 # If TCP: Check for common stealth scan TCP state patterns
@@ -832,7 +832,7 @@ $IPT -A OUTPUT -j destination-address-check
 # Standard input filtering for all incoming packets to this host
 $IPT -A INPUT -i $INTERNET -d $IPADDR -j EXT-input
 
-# Multicast traffic 
+# Multicast traffic
 # Drop here as multicast is not needed
 $IPT -A INPUT -i $INTERNET -p udp -s $CLASS_D_MULTICAST -j DROP
 $IPT -A OUTPUT -o $INTERNET -p udp -s $IPADDR -d $CLASS_D_MULTICAST -j DROP
