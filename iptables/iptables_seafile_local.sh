@@ -39,6 +39,7 @@ BROADCAST_DEST="255.255.255.255"		# Broadcast destination address
 
 PRIVPORTS="0:1023"						# Well-known, privileged port range
 UNPRIVPORTS="1024:65535"				# Unprivileged port range
+EXTUNPRIVPORTS="1000:65535"				# Unprivileged ports( support OS X nfs client request )
 
 # Traceroute usually use -S 32769:65535 -D 33434:33523
 TRACEROUTE_SRC_PORTS="32769:65535"
@@ -232,13 +233,12 @@ fi
 # Local UDP server, remote client
 
 $IPT -A EXT-input -p udp \
-        --sport $UNPRIVPORTS \
+        -s $MY_SUBNET \
         -j remote-udp-client-request
 
 $IPT -A EXT-output -p udp \
-        --dport $UNPRIVPORTS \
+        -d $MY_SUBNET \
         -j local-udp-server-response
-
 
 #...............................................................
 # Remote UDP client input and local server output chains
@@ -247,19 +247,16 @@ $IPT -A EXT-output -p udp \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-udp-client-request -p udp \
-            -s $MY_SUBNET \
             --dport 111 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-udp-client-request -p udp \
-        -s $MY_SUBNET \
         --dport 111 \
         -j ACCEPT
 
 $IPT -A local-udp-server-response -p udp \
-        -d $MY_SUBNET \
         --sports 111 \
         -j ACCEPT
 
@@ -267,19 +264,16 @@ $IPT -A local-udp-server-response -p udp \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p udp \
-			-s $MY_SUBNET \
             -m multiport --dports 662,892,2049,10021,10022 \
 			-m state --state NEW \
 			-j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p udp \
-		-s $MY_SUBNET \
         -m multiport --dports 662,892,2049,10021,10022 \
 		-j ACCEPT
 
 $IPT -A local-tcp-server-response -p udp \
-		-d $MY_SUBNET \
         -m multiport --sports 662,892,2049,10021,10022 \
 		-j ACCEPT
 
@@ -287,11 +281,11 @@ $IPT -A local-tcp-server-response -p udp \
 # Local TCP server, remote client
 
 $IPT -A EXT-input -p tcp \
-		--sport $UNPRIVPORTS \
+		-s $MY_SUBNET \
 		-j remote-tcp-client-request
 
 $IPT -A EXT-output -p tcp ! --syn \
-		--dport $UNPRIVPORTS \
+		-d $MY_SUBNET \
 		-j local-tcp-server-response
 
 
@@ -302,36 +296,50 @@ $IPT -A EXT-output -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
-			-s $MY_SUBNET --dport 22 \
+			--dport 22 \
 			-m state --state NEW \
 			-j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-		-s $MY_SUBNET --dport 22 \
+		--dport 22 \
 		-j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-		-d $MY_SUBNET --sport 22 \
+		--sport 22 \
 		-j ACCEPT
+
+# iSCSI Service ( Storage Network ) 
+
+if [ "$CONNECTION_TRACKING" = "1" ];then
+    $IPT -A remote-tcp-client-request -p tcp \
+            --dport 3260 \
+            -m state --state NEW \
+            -j ACCEPT
+fi
+
+$IPT -A remote-tcp-client-request -p tcp \
+        --dport 3260 \
+        -j ACCEPT
+
+$IPT -A local-tcp-server-response -p tcp ! --syn \
+        --sports 3260 \
+        -j ACCEPT
 
 # SUNRPC Service (Port Mapper)
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             --dport 111 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         --dport 111 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         --sports 111 \
         -j ACCEPT
 
@@ -339,19 +347,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
-			-s $MY_SUBNET \
             -m multiport --dports 662,892,2049,10021,10022 \
 			-m state --state NEW \
 			-j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-		-s $MY_SUBNET \
         -m multiport --dports 662,892,2049,10021,10022 \
 		-j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-		-d $MY_SUBNET \
         -m multiport --sports 662,892,2049,10021,10022 \
 		-j ACCEPT
 
@@ -359,19 +364,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             -m multiport --dports 80,443 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         -m multiport --dports 80,443 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         -m multiport --sports 80,443 \
         -j ACCEPT
 
@@ -380,19 +382,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             -m multiport --dports 9091 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         -m multiport --dports 9091 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         -m multiport --sports 9091 \
         -j ACCEPT
 
@@ -400,19 +399,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             -m multiport --dports 6001,5901:5910 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         -m multiport --dports 6001,5901:5910 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         -m multiport --sports 6001,5901:5910 \
         -j ACCEPT
 
@@ -420,19 +416,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             --dport 445 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         --dport 445 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         --sport 445 \
         -j ACCEPT
 
@@ -440,19 +433,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             --dport 3128 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         --dport 3128 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         --sport 3128 \
         -j ACCEPT
 
@@ -461,19 +451,16 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 
 if [ "$CONNECTION_TRACKING" = "1" ];then
     $IPT -A remote-tcp-client-request -p tcp \
-            -s $MY_SUBNET \
             --dport 631 \
             -m state --state NEW \
             -j ACCEPT
 fi
 
 $IPT -A remote-tcp-client-request -p tcp \
-        -s $MY_SUBNET \
         --dport 631 \
         -j ACCEPT
 
 $IPT -A local-tcp-server-response -p tcp ! --syn \
-        -d $MY_SUBNET \
         --sport 631 \
         -j ACCEPT
 
