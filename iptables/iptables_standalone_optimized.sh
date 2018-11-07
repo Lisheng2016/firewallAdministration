@@ -152,14 +152,14 @@ do
 		;;
 
 		nat)
-			for chain in PREROUTING FORWARD POSTROUTING
+			for chain in PREROUTING INPUT OUTPUT POSTROUTING
 			do
 				$IPT -t ${table} -P ${chain} ACCEPT
 			done
 		;;
 
 		mangle)
-			for chain in PREROUTING OUTPUT
+			for chain in PREROUTING PREROUTING FORWARD INPUT OUTPUT
 			do
 				$IPT -t ${table} -P ${chain} ACCEPT
 			done
