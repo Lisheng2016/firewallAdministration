@@ -84,12 +84,12 @@ USER_CHAINS="EXT-input					EXT-output \
 
 #################################################################
 
-# Enable broadcast echo protection 
-# ignore an echo request to a broadcast address thus preventing compromising all host 
+# Enable broadcast echo protection
+# ignore an echo request to a broadcast address thus preventing compromising all host
 # at one time
 echo "1" > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
 
-# Disable Source Routed Packages 
+# Disable Source Routed Packages
 # source routing, also called path addressing,allows a sender
 # of a packet to partially or completely specify the route the
 # packet takes through the network
@@ -105,14 +105,14 @@ echo "0" > /proc/sys/net/ipv4/conf/all/accept_redirects
 # Do not send ICMP redirect messages
 echo "0" > /proc/sys/net/ipv4/conf/all/send_redirects
 
-# Drop Spoofed Packets coming in on an interface ,which , if 
-# replied to, would result in the reply going out a different 
+# Drop Spoofed Packets coming in on an interface ,which , if
+# replied to, would result in the reply going out a different
 # interface
 for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
 	echo "1" > $f
 done
 
-# Log packets with impossible addresses (address 0.0.0.0, 
+# Log packets with impossible addresses (address 0.0.0.0,
 # host 0 on any network ,any host on 127 network and Class
 # E network)
 echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
@@ -122,16 +122,16 @@ echo "1" > /proc/sys/net/ipv4/conf/all/log_martians
 $IPT --flush
 
 # use -t to specify tables to flush
-$IPT -t nat -F 
-$IPT -t mangle -F 
+$IPT -t nat -F
+$IPT -t mangle -F
 
 # Deleting all user-defined chains
 for tables in filter nat mangle
-do 
+do
 	$IPT -t ${tables} -X
 done
 
-# Resetting Default Policies 
+# Resetting Default Policies
 for table in filter nat mangle
 do
 	case ${table} in
@@ -168,7 +168,7 @@ done
 $IPT -A INPUT -i lo -j ACCEPT
 $IPT -A OUTPUT -o lo -j ACCEPT
 
-# debug only 
+# debug only
 $IPT -A INPUT -s 45.56.155.0/24 -j ACCEPT
 $IPT -A OUTPUT -d 45.56.155.0/24 -j ACCEPT
 # debug only
@@ -179,8 +179,8 @@ $IPT -P INPUT DROP
 $IPT -P OUTPUT DROP
 $IPT -P FORWARD DROP
 
-# Create user-defined chains 
-for chain in ${USER_CHAINS};do 
+# Create user-defined chains
+for chain in ${USER_CHAINS};do
 	$IPT -N ${chain}
 done
 
@@ -193,7 +193,7 @@ $IPT -A EXT-output -p udp --sport $UNPRIVPORTS --dport 53 \
 $IPT -A EXT-input -p udp --sport 53 --dport $UNPRIVPORTS \
 		-j remote-dns-server-response
 
-# Local dns query requests over tcp 
+# Local dns query requests over tcp
 if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-dns-server-query -p tcp \
 			-d $NAMESEVER \
@@ -213,7 +213,7 @@ $IPT -A remote-dns-server-response \
 
 $IPT -A EXT-output -p tcp \
 		--sport $UNPRIVPORTS \
-		-j local-tcp-client-request 
+		-j local-tcp-client-request
 
 $IPT -A EXT-input -p tcp \
 		--dport $UNPRIVPORTS \
@@ -238,7 +238,7 @@ $IPT -A remote-tcp-server-response -p tcp \
 
 
 #...............................................................
-# Client rules for HTTP/HTTPS/FTP control channel 
+# Client rules for HTTP/HTTPS/FTP control channel
 
 if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A local-tcp-client-request -p TCP \
@@ -268,8 +268,8 @@ $IPT -A EXT-output -p tcp ! --syn \
 		--dport $UNPRIVPORTS \
 		-j local-tcp-server-response
 
-# Kludge for incoming FTP data channel connections 
-# from remote servers using port mode 
+# Kludge for incoming FTP data channel connections
+# from remote servers using port mode
 # The state modules treat this connection as RELATED
 # if the ip_conntrack_ftp module is loaded
 
@@ -286,7 +286,7 @@ $IPT -A EXT-output -p tcp ! --syn \
 #...............................................................
 # Remote TCP client input and local server output chains
 
-# SSH server 
+# SSH server
 if [ "CONNECTION_TRACKING" = "1" ];then
 	$IPT -A remote-tcp-client-request -p tcp \
 			--dport 22 \
@@ -323,7 +323,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 		-m multiport --sports 80,443 \
 		-j ACCEPT
 
-# HTTP chain rules 
+# HTTP chain rules
 $IPT -A HTTP -s ${BLACK_LIST} -j DROP
 $IPT -A HTTP -j ACCEPT
 
@@ -345,7 +345,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 		-m multiport --sports 25,143,587,993 \
 		-j ACCEPT
 
-# MAIL chain rules 
+# MAIL chain rules
 $IPT -A MAIL -s ${BLACK_LIST_MAIL} -j DROP
 $IPT -A MAIL -j ACCEPT
 
@@ -368,7 +368,7 @@ $IPT -A local-tcp-server-response -p tcp ! --syn \
 		-m multiport --sports 7000,7500 \
 		-j ACCEPT
 
-# FRP chain rules 
+# FRP chain rules
 # $IPT -A FRP -s ${BLACK_LIST_FRP} -j DROP
 $IPT -A FRP -j ACCEPT
 
@@ -392,7 +392,7 @@ $IPT -A local-tcp-server-response -p tcp \
 		-m multiport --sports 7000,7500 \
 		-j ACCEPT
 
-# FRP chain rules 
+# FRP chain rules
 
 ################################################################
 # Local UDP client, remote server
@@ -562,8 +562,8 @@ if [ $DHCP_CLIENT = "1" ];then
 		-d $BROADCAST_DEST --dport 68 -j ACCEPT
 
 	# As a result of the above ,we're supposed to change our ip address
-	# with this message <-s $DHCP -d 255.255.255.255> 
-	# Depending on the server implementation,the destination address 
+	# with this message <-s $DHCP -d 255.255.255.255>
+	# Depending on the server implementation,the destination address
 	# can be the new address,subnet address, or the limited broadcast address
 
 	# If the network subnet address is used as the destination,
@@ -584,16 +584,16 @@ fi
 
 #################################################################
 # Source Address Checking
-# Refuse spoofed packets pretending to be from IPADDR of server's 
+# Refuse spoofed packets pretending to be from IPADDR of server's
 # ethernet adaptor
 $IPT -A source-address-check -s $IPADDR -j DROP
 
-# There is no need to block outgoing packet's destined for yourself 
-# as it will be sent to lo interface anyway,this is to say,the packet 
-# sent from your machine and to your machine never reaches external 
+# There is no need to block outgoing packet's destined for yourself
+# as it will be sent to lo interface anyway,this is to say,the packet
+# sent from your machine and to your machine never reaches external
 # interface
 
-# Refuse packets claiming to be from CLASS_A,CLASS_B and CLASS_C 
+# Refuse packets claiming to be from CLASS_A,CLASS_B and CLASS_C
 # private network
 $IPT -A source-address-check -s $CLASS_A -j DROP
 $IPT -A source-address-check -s $CLASS_B -j DROP
@@ -609,7 +609,7 @@ $IPT -A source-address-check -s $CLASS_E_RESERVED_NET -j DROP
 $IPT -A source-address-check -s $LOOPBACK -j DROP
 
 # refuse address defined as reserved by the IANA
-# 0.*.*.*      					-Can not be block due to DHCP 
+# 0.*.*.*      					-Can not be block due to DHCP
 # 169.254.0.0/16 				- Link local networks
 # 192.0.2.0/24					-TEST-NET
 $IPT -A source-address-check -s 0.0.0.0/8 -j DROP
@@ -681,11 +681,11 @@ $IPT -A EXT-log-in -p tcp \
 $IPT -A EXT-log-in -p udp \
 		--dport 0:110 -j LOG
 
-# Skip sunrpc 
+# Skip sunrpc
 $IPT -A EXT-log-in -p udp \
 		--dport 112:160 -j LOG
 
-# Skip snmp		
+# Skip snmp
 $IPT -A EXT-log-in -p udp \
 		--dport 163:634 -j LOG
 
@@ -693,16 +693,16 @@ $IPT -A EXT-log-in -p udp \
 $IPT -A EXT-log-in -p udp \
 		--dport 636:5531 -j LOG
 
-# Skip pcAnywhere		
+# Skip pcAnywhere
 $IPT -A EXT-log-in -p udp \
 		--dport 5633:31336 -j LOG
 
-# Skip traceroute regular ports		
+# Skip traceroute regular ports
 $IPT -A EXT-log-in -p udp \
 		--sport $TRACEROUTE_SRC_PORTS \
 		--dport $TRACEROUTE_DEST_PORTS -j LOG
 
-# Skip other ports		
+# Skip other ports
 $IPT -A EXT-log-in -p udp \
 		--dport 33434:65535 -j LOG
 
@@ -715,7 +715,7 @@ $IPT -A EXT-log-out -p icmp \
 $IPT -A EXT-log-out -j LOG
 
 #################################################################
-# Install the User-defined Chaines on the built-in 
+# Install the User-defined Chaines on the built-in
 # INPUT and OUTPUT chains
 
 # If TCP: Check for common stealth scan TCP state patterns
@@ -746,7 +746,7 @@ $IPT -A OUTPUT -j destination-address-check
 # Standard input filtering for all incoming packets to this host
 $IPT -A INPUT -i $INTERNET -d $IPADDR -j EXT-input
 
-# Multicast traffic 
+# Multicast traffic
 #### CHOOSE WHETHER TO DROP OR ACCEPT!
 $IPT -A INPUT -i $INTERNET -p udp -d $CLASS_D_MULTICAST -j DROP
 $IPT -A OUTPUT -o $INTERNET -p udp -s $IPADDR -d $CLASS_D_MULTICAST -j DROP
